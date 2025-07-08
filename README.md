@@ -12,15 +12,16 @@ logs together for seamless user interaction.
 
 ## Architecture
 
-- **Expert Models**: Specialized vision models (BLIP, Florence, etc.)
+- **Expert Models**: Specialized models (Captioning, Object Recognition, Facial
+  Recognition, etc)
 - **Aggregator Model**: Intelligent coordinator that processes and combines
   expert outputs
 - **Unified Interface**: Single point of access for all vision analysis results
 
 ## Current Models
 
-- **BLIP**: Image captioning with optimized performance
-- **Florence**: Advanced image captioning with detailed descriptions
+- **BLIP**: Image captioning
+- **Yolo**: Object detection
 
 ## Future Models
 
