@@ -75,7 +75,7 @@ class BLIPModel:
                 torch.cuda.empty_cache()
             
             return caption
-        return None
+        return self.current_caption  # Return current caption even when no new one generated
 
     def run_standalone(self):
         """Run BLIP as a standalone application"""
