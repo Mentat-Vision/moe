@@ -18,9 +18,12 @@ LOG_MODE = "per_microsecond"  # Options: "per_microsecond" or "per_frame"
 # LOG_MODE = "per_frame"
 
 # Camera Configuration - Just comment/uncomment to enable/disable
+# Use integer index for local webcams, RTSP URL for IP cameras
 CAMERAS = [
-    {"id": "CAM1", "index": 0},  
-    {"id": "CAM2", "index": 2},  
+    {"id": "CAM1", "index": 0},  # Local webcam
+    {"id": "CAM2", "index": 2},  # Local webcam
+    {"id": "IP101", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101/"},  # IP camera
+    # {"id": "IP201", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201/"},  # IP camera
 ]
 
 class CameraStream:
@@ -33,6 +36,14 @@ class CameraStream:
         # Initialize models for this camera
         self.blip_model = BLIPModel()
         self.yolo_model = YOLOModel()
+        
+        # Different caption intervals for different camera types
+        if isinstance(self.index, str) and self.index.startswith('rtsp://'):
+            # IP cameras - more frequent captioning
+            self.blip_model.caption_interval = 5  # Every 5 frames for IP cameras
+        else:
+            # Local webcams - standard interval
+            self.blip_model.caption_interval = 15  # Every 15 frames for local cameras
         
         # State variables
         self.current_caption = ""
@@ -50,7 +61,16 @@ class CameraStream:
         
     def initialize_camera(self):
         """Initialize the camera capture"""
-        self.cap = cv2.VideoCapture(self.index)
+        # Check if this is an IP camera (RTSP URL) or local webcam
+        if isinstance(self.index, str) and self.index.startswith('rtsp://'):
+            # IP camera - use RTSP URL
+            self.cap = cv2.VideoCapture(self.index)
+            print(f"Connecting to IP camera: {self.index}")
+        else:
+            # Local webcam - use integer index
+            self.cap = cv2.VideoCapture(self.index)
+            print(f"Connecting to local camera: {self.index}")
+        
         if not self.cap.isOpened():
             print(f"Error: Could not open camera {self.index} ({self.id})")
             return False
@@ -60,6 +80,17 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Additional settings for IP cameras (without the problematic property)
+        if isinstance(self.index, str) and self.index.startswith('rtsp://'):
+            # RTSP specific settings for better performance
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('H', '2', '6', '4'))
+            # Try to set TCP preference if available
+            try:
+                self.cap.set(cv2.CAP_PROP_PROTOCOL_PREFERENCE, 0)  # TCP for better reliability
+            except AttributeError:
+                # Property not available, skip it
+                pass
         
         return True
     
@@ -75,6 +106,7 @@ class CameraStream:
         caption = self.blip_model.process_frame(frame)
         if caption:
             self.current_caption = caption
+            print(f"DEBUG: {self.id} generated new caption: {caption}")
         
         return results
     
@@ -114,7 +146,17 @@ class CameraStream:
                 ret, frame = self.cap.read()
                 if not ret:
                     print(f"Error reading from {self.id}")
+                    # For IP cameras, try to reconnect
+                    if isinstance(self.index, str) and self.index.startswith('rtsp://'):
+                        print(f"Attempting to reconnect to {self.id}...")
+                        time.sleep(2)
+                        self.cap.release()
+                        if self.initialize_camera():
+                            continue
                     break
+                
+                # Resize frame to standard size (640x480) for consistent display
+                frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
                 
                 # Process frame with both models
                 results = self.process_frame(frame)
@@ -126,6 +168,9 @@ class CameraStream:
                 
                 # Create annotated frame
                 annotated = results.plot()
+                
+                # Resize annotated frame to ensure consistent display size
+                annotated = cv2.resize(annotated, (640, 480), interpolation=cv2.INTER_AREA)
                 
                 # Add caption overlay if available
                 if self.current_caption:
