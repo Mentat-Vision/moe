@@ -25,7 +25,7 @@ elif torch.backends.mps.is_available():
 else:
     device = "cpu"
 
-# Load model with optimizations
+# Load model with optimizations - remove float16 for compatibility
 processor = AutoProcessor.from_pretrained(
     MODEL, 
     trust_remote_code=True,
@@ -34,7 +34,6 @@ processor = AutoProcessor.from_pretrained(
 model = AutoModelForCausalLM.from_pretrained(
     MODEL, 
     trust_remote_code=True,
-    torch_dtype=torch.float16,  # Half precision for speed
     low_cpu_mem_usage=True
 ).to(device)
 
