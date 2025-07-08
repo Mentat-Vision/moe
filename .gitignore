@@ -4,6 +4,9 @@ env/
 .venv/
 .env/
 
+# Yolo Models
+yoloModels/
+
 # Python
 __pycache__/
 *.py[cod]

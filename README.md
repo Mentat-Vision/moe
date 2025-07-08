@@ -1,14 +1,12 @@
 # Mixture of Experts Vision System
 
-A new system architecture based on mixture of experts for unified computer
-vision analysis.
+A new system architecture based on mixture of experts.
 
 ## Goal
 
 Build a comprehensive vision system that aggregates multiple specialized models
 (captioning, object detection, facial recognition, etc.) under one intelligent
-aggregator model. The system provides a unified interface that ties all data
-logs together for seamless user interaction.
+aggregator model.
 
 ## Architecture
 
@@ -16,7 +14,7 @@ logs together for seamless user interaction.
   Recognition, etc)
 - **Aggregator Model**: Intelligent coordinator that processes and combines
   expert outputs
-- **Unified Interface**: Single point of access for all vision analysis results
+- **Unified Interface**: Single point of access for user interface
 
 ## Current Models
 
@@ -31,5 +29,6 @@ logs together for seamless user interaction.
 - Action recognition
 - And more...
 
-The system will evolve to include additional expert models while maintaining a
-cohesive user experience through the central aggregator.
+## Repo Notes
+
+- models folder contain experimental models & not aggregated by main.py

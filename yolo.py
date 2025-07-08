@@ -5,11 +5,11 @@ from ultralytics import YOLO
 class YOLOModel:
     def __init__(self):
         # Load model (nano version is fastest and smallest)
-        # self.model = YOLO("yolov8x.pt")
-        self.model = YOLO("yolov8l.pt")
-        # self.model = YOLO("yolov8m.pt")
-        # self.model = YOLO("yolov8s.pt")
-        # self.model = YOLO("yolov8n.pt")
+        # self.model = YOLO("./yoloModels/yolov8x.pt")
+        self.model = YOLO("./yoloModels/yolov8l.pt")
+        # self.model = YOLO("./yoloModels/yolov8m.pt")
+        # self.model = YOLO("./yoloModels/yolov8s.pt")
+        # self.model = YOLO("./yoloModels/yolov8n.pt")
 
     def process_frame(self, frame):
         """Process a frame and return detection results"""
