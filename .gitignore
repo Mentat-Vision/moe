@@ -50,4 +50,20 @@ Thumbs.db
 
 # Model files (if any are downloaded)
 *.bin
-*.safetensors 
+*.safetensors
+
+# Large Model Files - Add these lines
+modelsChat/*.gguf
+modelsYolo/*.pt
+modelsYolo/*.pth
+*.gguf
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.tflite
+*.pb
+
+# Log files
+logs.txt 

@@ -29,7 +29,40 @@ aggregator model.
 - Action recognition
 - And more...
 
+## Setup Instructions
+
+1. **Clone the repository:**
+
+   ```bash
+   git clone <your-repo-url>
+   cd Models
+   ```
+
+2. **Install dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Download required models:**
+
+   ```bash
+   python download_models.py
+   ```
+
+4. **Manual model download (if needed):**
+   - For Llama model: Download `llama-3.2-1b-instruct-q4_k_m.gguf` from
+     [HuggingFace](https://huggingface.co/TheBloke/Llama-3.2-1B-Instruct-GGUF)
+   - Place it in `modelsChat/` directory
+
+## Usage
+
+- **Main system:** `python main.py`
+- **Chat analysis:** `python chat.py`
+- **Standalone YOLO:** `python yolo.py`
+
 ## Repo Notes
 
 - models folder contain experimental models & not aggregated by main.py
-- using python 3.12.9
+- Large model files are not tracked in git (see .gitignore)
+- Run `python download_models.py` to get required models
