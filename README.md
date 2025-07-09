@@ -32,3 +32,4 @@ aggregator model.
 ## Repo Notes
 
 - models folder contain experimental models & not aggregated by main.py
+- using python 3.12.9

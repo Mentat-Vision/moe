@@ -5,6 +5,7 @@ from datetime import datetime
 import warnings
 import os
 import queue
+import json
 
 # Import our modular components
 from blip import BLIPModel
@@ -16,14 +17,19 @@ warnings.filterwarnings("ignore")
 # Configuration
 LOG_MODE = "per_microsecond"  # Options: "per_microsecond" or "per_frame"
 # LOG_MODE = "per_frame"
+SAVE_LOGS_TO_FILE = True  # Set to True to save logs to logs.txt
 
 # Camera Configuration - Just comment/uncomment to enable/disable
 # Use integer index for local webcams, RTSP URL for IP cameras
 CAMERAS = [
-    {"id": "CAM1", "index": 0},  # Local webcam
-    {"id": "CAM2", "index": 2},  # Local webcam
-    {"id": "IP101", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101/"},  # IP camera
-    # {"id": "IP201", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201/"},  # IP camera
+    {"id": "CAM1 - Mac Webcam", "index": 2}, 
+    {"id": "CAM2 - USB Webcam", "index": 0}, 
+    {"id": "IP101 - Front Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101/"}, 
+    # {"id": "IP201 - Back Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201/"},  
+    # {"id": "IP301 - Side Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301/"},  
+    # {"id": "IP401 - Stairs", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/401/"}, 
+    {"id": "IP501 - Parking Outwards", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/501/"},  
+    # {"id": "IP601 - Parking Towards", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/601/"}, 
 ]
 
 class CameraStream:
@@ -106,7 +112,6 @@ class CameraStream:
         caption = self.blip_model.process_frame(frame)
         if caption:
             self.current_caption = caption
-            print(f"DEBUG: {self.id} generated new caption: {caption}")
         
         return results
     
@@ -127,12 +132,83 @@ class CameraStream:
             return False
     
     def get_log_entry(self):
-        """Get the log entry for this camera"""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
+        """Get the log entry for this camera in JSON format"""
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         caption = self.current_caption if self.current_caption else "No caption yet"
-        objects = ', '.join(self.current_objects) if self.current_objects else "No objects detected"
+        objects = self.current_objects if self.current_objects else []
         
-        return f"{self.id}\n - {timestamp}\n - Caption: {caption}\n - Objects: {objects}"
+        log_data = {
+            "timestamp": timestamp,
+            "camera": self.id,
+            "caption": caption,
+            "objects": objects
+        }
+        
+        log_entry = json.dumps(log_data, indent=2)
+        
+        # Save to file if enabled
+        if SAVE_LOGS_TO_FILE:
+            try:
+                with open('logs.txt', 'a') as f:
+                    f.write(log_entry + '\n\n')
+            except Exception as e:
+                pass  # Silently fail if file writing fails
+        
+        return log_entry
+    
+    def add_caption_overlay(self, frame, caption):
+        """Add caption overlay with black background for better readability"""
+        if not caption:
+            return frame
+            
+        # Word wrapping for better display
+        words = caption.split()
+        lines = []
+        current_line = ""
+        for word in words:
+            if len(current_line + " " + word) < 40:
+                current_line += (" " + word) if current_line else word
+            else:
+                lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        
+        # Limit to 3 lines
+        lines = lines[:3]
+        
+        # Calculate text dimensions and background
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        line_height = 25
+        padding = 10
+        
+        # Calculate total height needed
+        total_height = len(lines) * line_height + 2 * padding
+        
+        # Create black background rectangle
+        bg_x1 = 10
+        bg_y1 = 10
+        bg_x2 = 630  # Leave some margin from right edge
+        bg_y2 = bg_y1 + total_height
+        
+        # Draw black background with some transparency
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+        
+        # Blend the overlay with the original frame (70% original, 30% black)
+        alpha = 0.7
+        frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+        
+        # Add text
+        y_position = bg_y1 + padding + 20  # Start text below padding
+        for i, line in enumerate(lines):
+            cv2.putText(frame, line, (bg_x1 + 5, y_position), font,
+                        font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+            y_position += line_height
+        
+        return frame
     
     def run_stream(self):
         """Run the camera stream in its own thread"""
@@ -172,25 +248,8 @@ class CameraStream:
                 # Resize annotated frame to ensure consistent display size
                 annotated = cv2.resize(annotated, (640, 480), interpolation=cv2.INTER_AREA)
                 
-                # Add caption overlay if available
-                if self.current_caption:
-                    words = self.current_caption.split()
-                    lines = []
-                    current_line = ""
-                    for word in words:
-                        if len(current_line + " " + word) < 40:
-                            current_line += (" " + word) if current_line else word
-                        else:
-                            lines.append(current_line)
-                            current_line = word
-                    if current_line:
-                        lines.append(current_line)
-                    
-                    y_position = 30
-                    for i, line in enumerate(lines[:3]):
-                        cv2.putText(annotated, line, (10, y_position), cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                        y_position += 25
+                # Add caption overlay with black background
+                annotated = self.add_caption_overlay(annotated, self.current_caption)
                 
                 # Put frame in queue for display (non-blocking)
                 try:
@@ -214,6 +273,15 @@ class MultiCameraSystem:
         self.cameras = []
         self.threads = []
         self.running = False
+        
+        # Clear logs file at startup
+        if SAVE_LOGS_TO_FILE:
+            try:
+                with open('logs.txt', 'w') as f:
+                    f.write('')  # Clear the file
+                print("Logs file cleared for new session.")
+            except Exception as e:
+                print(f"Warning: Could not clear logs file: {e}")
         
         # Initialize all cameras in the list
         for camera_config in CAMERAS:
