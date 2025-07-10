@@ -47,7 +47,7 @@ aggregator model.
 3. **Download required models:**
 
    ```bash
-   python download_models.py
+   python modelsDownload.py
    ```
 
 4. **Manual model download (if needed):**
@@ -65,4 +65,4 @@ aggregator model.
 
 - models folder contain experimental models & not aggregated by main.py
 - Large model files are not tracked in git (see .gitignore)
-- Run `python download_models.py` to get required models
+- Run `python modelsDownload.py` to get required models

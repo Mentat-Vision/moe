@@ -11,6 +11,8 @@ warnings.filterwarnings("ignore")
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 torch.set_grad_enabled(False)  # Disable gradients globally
 
+CAMERA_INDEX = 2
+
 class BLIPModel:
     def __init__(self):
         # Optimized BLIP configuration
@@ -80,7 +82,7 @@ class BLIPModel:
     def run_standalone(self):
         """Run BLIP as a standalone application"""
         # Optimized webcam settings
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(CAMERA_INDEX)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_FPS, 30)
@@ -113,9 +115,17 @@ class BLIPModel:
                 if current_line:
                     lines.append(current_line)
                 
-                # Display up to 3 lines
+                # Display up to 3 lines with black background
                 y_position = 30
                 for i, line in enumerate(lines[:3]):
+                    # Get text size to create background rectangle
+                    (text_width, text_height), baseline = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                    
+                    # Draw black background rectangle
+                    cv2.rectangle(frame, (10, y_position - text_height - 5), 
+                                (10 + text_width + 10, y_position + 5), (0, 0, 0), -1)
+                    
+                    # Draw text on top of background
                     cv2.putText(frame, line, (10, y_position), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6, (0, 255, 0), 2, cv2.LINE_AA)
                     y_position += 25

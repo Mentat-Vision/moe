@@ -24,11 +24,11 @@ SAVE_LOGS_TO_FILE = True  # Set to True to save logs to logs.txt
 CAMERAS = [
     {"id": "CAM1 - Mac Webcam", "index": 2}, 
     {"id": "CAM2 - USB Webcam", "index": 0}, 
-    {"id": "IP101 - Front Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101/"}, 
+    # {"id": "IP101 - Front Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101/"}, 
     # {"id": "IP201 - Back Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201/"},  
     # {"id": "IP301 - Side Door", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301/"},  
     # {"id": "IP401 - Stairs", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/401/"}, 
-    {"id": "IP501 - Parking Outwards", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/501/"},  
+    # {"id": "IP501 - Parking Outwards", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/501/"},  
     # {"id": "IP601 - Parking Towards", "index": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/601/"}, 
 ]
 
