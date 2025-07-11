@@ -1,7 +1,30 @@
 import requests
 import json
+import os
 
-SERVER_URL = "http://10.8.162.58:5002/chat"
+def load_config():
+    """Load configuration from config.env"""
+    config = {}
+    
+    if os.path.exists("config.env"):
+        with open("config.env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or not line:
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    config[key.strip()] = value.strip()
+    
+    return config
+
+# Load configuration
+config = load_config()
+
+# Get server URL from config
+server_ip = config.get("LLAMA_SERVER_IP", "10.8.162.58")
+server_port = config.get("LLAMA_SERVER_PORT", "5001")
+SERVER_URL = f"http://{server_ip}:{server_port}/chat"
 
 def send_message(message, history=None):
     if history is None:
@@ -22,6 +45,7 @@ def send_message(message, history=None):
 
 def main():
     print("🤖 Llama Chat Client")
+    print(f"Connected to: {SERVER_URL}")
     print("Type 'quit' to exit")
     print("-" * 30)
     
