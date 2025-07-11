@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multi-Camera Web Viewer</title>
+    <style>
+        body { background: #222; color: #eee; font-family: sans-serif; }
+        .cam-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .cam-box { background: #333; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px #0008; }
+        .cam-title { margin-bottom: 8px; font-weight: bold; }
+        img { display: block; max-width: 640px; max-height: 480px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Multi-Camera Web Viewer</h1>
+    <div class="cam-container">
+        {% for cam in cameras %}
+        <div class="cam-box">
+            <div class="cam-title">{{ cam['id'] }}</div>
+            <img src="/video/{{ cam['id'] }}" alt="{{ cam['id'] }}">
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html> 
