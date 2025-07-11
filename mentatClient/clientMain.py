@@ -41,9 +41,8 @@ class MultiCameraClient:
         if not self.cameras:
             raise ValueError("No cameras enabled. Check config.env file.")
         
-        # WebSocket connections for each camera
-        self.yolo_websockets = {}
-        self.blip_websockets = {}
+        # Single WebSocket connection per camera
+        self.websockets = {}
         self.connected = {}
         
         # Data storage for each camera
@@ -59,8 +58,8 @@ class MultiCameraClient:
         # Performance tracking
         self.last_yolo_time = {}
         self.last_blip_time = {}
-        self.yolo_interval = 0.1  # 100ms between YOLO detections
-        self.blip_interval = 2.0  # 2 seconds between BLIP captions
+        self.yolo_interval = 0.2  # 200ms between YOLO detections (5 FPS)
+        self.blip_interval = 3.0  # 3 seconds between BLIP captions
         
         # Camera status tracking
         self.camera_status = {}
@@ -71,24 +70,23 @@ class MultiCameraClient:
                 "detections": [],
                 "person_detections": [],
                 "person_count": 0,
-                "fps": 0,
-                "model_size": "Unknown"
+                "fps": 0
             }
             self.blip_data[camera_index] = {
                 "caption": "",
                 "fps": 0
             }
-            self.connected[camera_index] = {"yolo": False, "blip": False}
+            self.connected[camera_index] = False
             self.last_yolo_time[camera_index] = 0
             self.last_blip_time[camera_index] = 0
             self.camera_status[camera_index] = {"working": True, "failures": 0}
     
-    async def connect_yolo(self, camera_index):
-        """Connect to YOLO server for specific camera"""
+    async def connect_to_server(self, camera_index):
+        """Connect to central WebSocket server for specific camera"""
         try:
             # Read server URL from config.env
             server_ip = "10.8.162.58"
-            yolo_port = "5000"
+            server_port = "5000"
             
             if os.path.exists("config.env"):
                 with open("config.env", "r") as f:
@@ -96,118 +94,78 @@ class MultiCameraClient:
                         line = line.strip()
                         if line.startswith("SERVER_IP="):
                             server_ip = line.split("=", 1)[1]
-                        elif line.startswith("YOLO_PORT="):
-                            yolo_port = line.split("=", 1)[1]
+                        elif line.startswith("SERVER_PORT="):
+                            server_port = line.split("=", 1)[1]
             
-            server_url = f"ws://{server_ip}:{yolo_port}"
-            self.yolo_websockets[camera_index] = await websockets.connect(server_url)
-            self.connected[camera_index]["yolo"] = True
-            print(f"🔌 Camera {camera_index} connected to YOLO server: {server_url}")
+            server_url = f"ws://{server_ip}:{server_port}"
+            self.websockets[camera_index] = await websockets.connect(server_url)
+            self.connected[camera_index] = True
+            print(f"🔌 Camera {camera_index} connected to server: {server_url}")
             return True
         except Exception as e:
-            print(f"❌ Camera {camera_index} failed to connect to YOLO: {e}")
+            print(f"❌ Camera {camera_index} failed to connect to server: {e}")
             return False
     
-    async def connect_blip(self, camera_index):
-        """Connect to BLIP server for specific camera"""
-        try:
-            # Read server URL from config.env
-            server_ip = "10.8.162.58"
-            blip_port = "5001"
-            
-            if os.path.exists("config.env"):
-                with open("config.env", "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("SERVER_IP="):
-                            server_ip = line.split("=", 1)[1]
-                        elif line.startswith("BLIP_PORT="):
-                            blip_port = line.split("=", 1)[1]
-            
-            server_url = f"ws://{server_ip}:{blip_port}"
-            self.blip_websockets[camera_index] = await websockets.connect(server_url)
-            self.connected[camera_index]["blip"] = True
-            print(f"🔌 Camera {camera_index} connected to BLIP server: {server_url}")
-            return True
-        except Exception as e:
-            print(f"❌ Camera {camera_index} failed to connect to BLIP: {e}")
-            return False
-    
-    async def send_yolo_frame(self, camera_index, frame):
-        """Send frame to YOLO server for specific camera"""
-        if not self.connected[camera_index]["yolo"] or camera_index not in self.yolo_websockets:
+    async def send_frame_to_expert(self, camera_index, frame, expert_type):
+        """Send frame to specific expert through central server"""
+        if not self.connected[camera_index] or camera_index not in self.websockets:
             return
         
         try:
+            # Resize frame for processing
             frame_resized = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-            _, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            frame_bytes = buffer.tobytes()
             
-            await self.yolo_websockets[camera_index].send(frame_bytes)
-            response = await asyncio.wait_for(self.yolo_websockets[camera_index].recv(), timeout=2.0)
+            # Encode frame as base64
+            _, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            frame_base64 = base64.b64encode(buffer).decode('utf-8')
+            
+            # Create message with expert type and camera info
+            message = {
+                "expert": expert_type,
+                "camera_id": camera_index,
+                "frame": frame_base64
+            }
+            
+            # Send message
+            await self.websockets[camera_index].send(json.dumps(message))
+            
+            # Wait for response
+            timeout = 5.0 if expert_type == "BLIP" else 2.0
+            response = await asyncio.wait_for(self.websockets[camera_index].recv(), timeout=timeout)
             results = json.loads(response)
             
-            if "error" not in results:
+            # Handle response based on expert type
+            if expert_type == "YOLO" and "error" not in results:
                 self.yolo_data[camera_index]["detections"] = results.get("detections", [])
                 self.yolo_data[camera_index]["person_detections"] = results.get("person_detections", [])
                 self.yolo_data[camera_index]["person_count"] = results.get("person_count", 0)
                 self.yolo_data[camera_index]["fps"] = results.get("fps", 0)
-                self.yolo_data[camera_index]["model_size"] = results.get("model_size", "Unknown")
                 
                 if self.yolo_data[camera_index]["detections"]:
                     labels = [f"{d['class']} ({d['confidence']:.2f})" for d in self.yolo_data[camera_index]["detections"]]
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     print(f"🎯 Camera {camera_index} - {timestamp} - {', '.join(labels)} (FPS: {self.yolo_data[camera_index]['fps']}, Persons: {self.yolo_data[camera_index]['person_count']})")
                     
-        except asyncio.TimeoutError:
-            print(f"⏰ Camera {camera_index} YOLO detection timeout")
-        except websockets.exceptions.ConnectionClosed:
-            print(f"🔌 Camera {camera_index} YOLO connection closed, attempting to reconnect...")
-            self.connected[camera_index]["yolo"] = False
-            # Try to reconnect
-            await self.connect_yolo(camera_index)
-        except Exception as e:
-            print(f"❌ Camera {camera_index} YOLO error: {e}")
-            self.connected[camera_index]["yolo"] = False
-    
-    async def send_blip_frame(self, camera_index, frame):
-        """Send frame to BLIP server for specific camera"""
-        if not self.connected[camera_index]["blip"] or camera_index not in self.blip_websockets:
-            print(f"🔍 Camera {camera_index} BLIP: Not connected or no websocket")
-            return
-        
-        try:
-            frame_resized = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-            _, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            frame_bytes = buffer.tobytes()
-            
-            print(f"🔍 Camera {camera_index} BLIP: Sending frame ({len(frame_bytes)} bytes)")
-            await self.blip_websockets[camera_index].send(frame_bytes)
-            response = await asyncio.wait_for(self.blip_websockets[camera_index].recv(), timeout=5.0)
-            results = json.loads(response)
-            
-            if "error" not in results:
+            elif expert_type == "BLIP" and "error" not in results:
                 self.blip_data[camera_index]["caption"] = results.get("caption", "")
                 self.blip_data[camera_index]["fps"] = results.get("fps", 0)
                 
                 if self.blip_data[camera_index]["caption"]:
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     print(f"📝 Camera {camera_index} - {timestamp} - {self.blip_data[camera_index]['caption']} (FPS: {self.blip_data[camera_index]['fps']})")
-                else:
-                    print(f"🔍 Camera {camera_index} BLIP: Empty caption received")
-            else:
-                print(f"🔍 Camera {camera_index} BLIP: Error in response: {results.get('error')}")
+                    
+            elif "error" in results:
+                print(f"❌ Camera {camera_index} {expert_type} error: {results['error']}")
                     
         except asyncio.TimeoutError:
-            print(f"⏰ Camera {camera_index} BLIP caption timeout")
+            print(f"⏰ Camera {camera_index} {expert_type} timeout")
         except websockets.exceptions.ConnectionClosed:
-            print(f"🔌 Camera {camera_index} BLIP connection closed, attempting to reconnect...")
-            self.connected[camera_index]["blip"] = False
+            print(f"🔌 Camera {camera_index} connection closed, attempting to reconnect...")
+            self.connected[camera_index] = False
             # Try to reconnect
-            await self.connect_blip(camera_index)
+            await self.connect_to_server(camera_index)
         except Exception as e:
-            print(f"❌ Camera {camera_index} BLIP error: {e}")
-            self.connected[camera_index]["blip"] = False
+            print(f"❌ Camera {camera_index} {expert_type} error: {e}")
     
     def draw_yolo_detections(self, frame, camera_index):
         """Draw YOLO detections on frame"""
@@ -261,7 +219,10 @@ class MultiCameraClient:
             if current_line:
                 lines.append(current_line)
             
-            y_position = 30
+            # Position caption at bottom of frame to avoid overlap
+            frame_height = frame.shape[0]
+            y_position = frame_height - 80  # Start 80px from bottom
+            
             for i, line in enumerate(lines[:3]):
                 (text_width, text_height), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
                 cv2.rectangle(frame, (10, y_position - text_height - 5), 
@@ -272,38 +233,41 @@ class MultiCameraClient:
     
     def draw_status_info(self, frame, camera_index):
         """Draw status information on frame"""
+        # Position status info on the right side to avoid overlap
+        frame_width = frame.shape[1]
+        x_position = frame_width - 200  # 200px from right edge
+        
         # Camera info
-        cv2.putText(frame, f"Camera: {camera_index}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.7, (255, 255, 255), 2)
+        cv2.putText(frame, f"Camera: {camera_index}", (x_position, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                   0.6, (255, 255, 255), 2)
         
         # Connection status
-        yolo_status = "YOLO: Connected" if self.connected[camera_index]["yolo"] else "YOLO: Disconnected"
-        blip_status = "BLIP: Connected" if self.connected[camera_index]["blip"] else "BLIP: Disconnected"
-        
-        cv2.putText(frame, yolo_status, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.7, (0, 255, 0) if self.connected[camera_index]["yolo"] else (0, 0, 255), 2)
-        cv2.putText(frame, blip_status, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.7, (0, 255, 0) if self.connected[camera_index]["blip"] else (0, 0, 255), 2)
+        status_text = "Connected" if self.connected[camera_index] else "Disconnected"
+        status_color = (0, 255, 0) if self.connected[camera_index] else (0, 0, 255)
+        cv2.putText(frame, f"Server: {status_text}", (x_position, 55), cv2.FONT_HERSHEY_SIMPLEX, 
+                   0.6, status_color, 2)
         
         # FPS info
+        y_pos = 80
         if self.yolo_data[camera_index]["fps"] > 0:
-            cv2.putText(frame, f"YOLO FPS: {self.yolo_data[camera_index]['fps']}", (10, 120), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, f"YOLO FPS: {self.yolo_data[camera_index]['fps']}", (x_position, y_pos), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            y_pos += 25
         if self.blip_data[camera_index]["fps"] > 0:
-            cv2.putText(frame, f"BLIP FPS: {self.blip_data[camera_index]['fps']}", (10, 150), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, f"BLIP FPS: {self.blip_data[camera_index]['fps']}", (x_position, y_pos), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            y_pos += 25
         
         # Person count
         if self.yolo_data[camera_index]["person_count"] > 0:
-            cv2.putText(frame, f"Persons: {self.yolo_data[camera_index]['person_count']}", (10, 180), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, f"Persons: {self.yolo_data[camera_index]['person_count']}", (x_position, y_pos), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     async def run_async(self):
         """Main async loop"""
-        # Connect to servers for each camera
+        # Connect to server for each camera
         for camera_index in self.cameras:
-            await self.connect_yolo(camera_index)
-            await self.connect_blip(camera_index)
+            await self.connect_to_server(camera_index)
         
         # Initialize video captures
         caps = {}
@@ -321,7 +285,7 @@ class MultiCameraClient:
             caps[camera_index] = cap
             print(f"✅ Camera {camera_index} initialized successfully")
         
-        print("🎥 Multi-Camera Client running with both YOLO and BLIP on each camera.")
+        print("🎥 Multi-Camera Client running with central server architecture.")
         print("Press 'q' to quit.")
         
         while True:
@@ -349,12 +313,11 @@ class MultiCameraClient:
                 
                 # Send frames at controlled rates
                 if current_time - self.last_yolo_time[camera_index] >= self.yolo_interval:
-                    await self.send_yolo_frame(camera_index, frame)
+                    await self.send_frame_to_expert(camera_index, frame, "YOLO")
                     self.last_yolo_time[camera_index] = current_time
                 
                 if current_time - self.last_blip_time[camera_index] >= self.blip_interval:
-                    print(f"🔍 Camera {camera_index}: Sending frame to BLIP (interval: {current_time - self.last_blip_time[camera_index]:.2f}s)")
-                    await self.send_blip_frame(camera_index, frame)
+                    await self.send_frame_to_expert(camera_index, frame, "BLIP")
                     self.last_blip_time[camera_index] = current_time
                 
                 # Draw overlays
@@ -375,9 +338,7 @@ class MultiCameraClient:
         cv2.destroyAllWindows()
         
         # Close WebSocket connections
-        for websocket in self.yolo_websockets.values():
-            await websocket.close()
-        for websocket in self.blip_websockets.values():
+        for websocket in self.websockets.values():
             await websocket.close()
 
 def main():

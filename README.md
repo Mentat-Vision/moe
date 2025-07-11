@@ -1,114 +1,210 @@
 # Mixture of Experts Vision System
 
-A new system architecture based on mixture of experts.
+A centralized vision processing system using a mixture of expert models (YOLO
+object detection and BLIP image captioning) with a single WebSocket server
+architecture.
+
+## System Architecture
+
+The system uses a **centralized server architecture** where:
+
+- **Single WebSocket Server** handles all client connections on one port
+- **Expert Workers** (YOLO, BLIP) process frames asynchronously via internal
+  queues
+- **Multi-Camera Client** connects to the central server and sends frames to
+  specific experts
 
 ## Sampo Server (Current Backend)
 
-- **Sampo** is currently an **8x Tesla V100 GPU, 500GB RAM server** (used by
-  deo). This may change in the future to a cloud compute platform such as
-  RunPod, AWS, or Google Cloud.
+- **Sampo** is currently an **8x Tesla V100 GPU, 500GB RAM server**
+- This may change in the future to a cloud compute platform such as RunPod, AWS,
+  or Google Cloud
 
 ## Project Structure
 
-- `mentatClient/` — All client-side code and dependencies
-  - `clientMain.py` — Main client program (runs all experts in parallel)
-  - `experts/` — Individual expert clients (e.g. BLIP, YOLO, Llama)
-  - `venv/` — Python virtual environment for client dependencies
-  - `config.env` — Configuration for ports, cameras, etc.
-  - `modelsDownload.py` — Downloads only the models actually used
-  - `requirements.txt` — Only the dependencies actually used
-  - `modelsYolo/` — Client-side YOLO models (for local testing)
-- `mentatSampo/` — All server-side code (run on Sampo or future cloud server)
-  - `serverMain.py` — Main server program (runs all experts in parallel)
-  - `experts/` — Individual expert servers (e.g. BLIP, YOLO, Llama)
-  - `config.env` — Server configuration (ports, models, GPU settings)
-  - `modelsYolo/` — Server-side YOLO models (for production inference)
-- `mentatBoxhost/` — (Empty, ignored by git, reserved for future use)
+```
+MOE/
+├── mentatClient/           # Client-side code
+│   ├── clientMain.py      # Main multi-camera client
+│   ├── config.env         # Client configuration
+│   ├── requirements.txt   # Client dependencies
+│   ├── modelsDownload.py  # Model download utility
+│   └── venv/              # Client virtual environment
+├── mentatSampo/           # Server-side code
+│   ├── serverMain.py      # Central WebSocket server
+│   ├── config.env         # Server configuration
+│   ├── requirements_server.txt  # Server dependencies
+│   ├── experts/           # Expert worker modules
+│   │   ├── baseWorker.py  # Base worker class
+│   │   ├── serverYolo.py  # YOLO expert worker
+│   │   └── serverBlip.py  # BLIP expert worker
+│   ├── modelsYolo/        # YOLO model files
+│   └── venv/              # Server virtual environment
+└── README.md              # This file
+```
 
-## Usage
+## Quick Start
 
-- **Client/Server split:**
-
-  - Run files in `mentatSampo/` on the server (Sampo or cloud)
-  - Run files in `mentatClient/` on your local/client machine
-
-- **Main system:**
-
-  - On the client: `python clientMain.py` (runs all expert models in parallel)
-  - On the server: `python serverMain.py`
-
-- **Individual expert models:**
-
-  - On the client: `python experts/clientYolo.py` or
-    `python experts/clientBlip.py` (from within `mentatClient/`)
-  - On the server: `python experts/serverYolo.py` or
-    `python experts/serverBlip.py` (from within `mentatSampo/`)
-
-- **Configuration:**
-  - Edit `mentatClient/config.env` to set ports, server IP, and which cameras
-    are enabled
-  - Edit `mentatSampo/config.env` to set server ports, model paths, and GPU
-    settings
-
-## Camera Configuration
-
-The client configuration supports flexible camera selection:
+### 1. Server Setup (Run on Sampo/Cloud)
 
 ```bash
-# In mentatClient/config.env
-CAMERAS=0,1          # Use cameras 0 and 1
-CAMERAS=0             # Use only camera 0
-CAMERAS=1,3,5         # Use cameras 1, 3, and 5
-CAMERAS=0,2,4         # Use cameras 0, 2, and 4
+cd mentatSampo
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements_server.txt
+
+# Edit config.env if needed
+python serverMain.py
 ```
+
+### 2. Client Setup (Run locally)
+
+```bash
+cd mentatClient
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Edit config.env to set server IP and cameras
+python clientMain.py
+```
+
+## Configuration
+
+### Client Configuration (`mentatClient/config.env`)
+
+```bash
+# Server connection
+SERVER_IP=10.8.162.58      # Sampo server IP
+SERVER_PORT=5000           # Central server port
+
+# Camera selection
+CAMERAS=0,1                # Use cameras 0 and 1
+# CAMERAS=0                # Use only camera 0
+# CAMERAS=1,3,5            # Use cameras 1, 3, and 5
+```
+
+### Server Configuration (`mentatSampo/config.env`)
+
+```bash
+# Server settings
+SERVER_PORT=5000
+
+# Model paths
+YOLO_MODEL_PATH=modelsYolo/yolo11s.pt
+BLIP_MODEL_NAME=Salesforce/blip-image-captioning-base
+
+# GPU settings
+USE_GPU=true
+CUDA_DEVICE=cuda
+```
+
+## How It Works
+
+1. **Central Server**: Single WebSocket server (`serverMain.py`) runs on port
+   5000
+2. **Expert Workers**: YOLO and BLIP workers process frames asynchronously
+3. **Client Protocol**: Client sends JSON messages specifying expert type and
+   frame data:
+   ```json
+   {
+   	"expert": "YOLO",
+   	"camera_id": 0,
+   	"frame": "base64_encoded_image"
+   }
+   ```
+4. **Frame Processing**:
+   - YOLO: Object detection every 200ms (5 FPS)
+   - BLIP: Image captioning every 3 seconds
+5. **Response**: Server returns results directly to client
+
+## Features
+
+- **Multi-Camera Support**: Process multiple cameras simultaneously
+- **Expert Routing**: Send frames to specific experts (YOLO or BLIP)
+- **Async Processing**: Non-blocking frame processing with queue management
+- **Performance Optimization**: Configurable frame intervals for optimal FPS
+- **Clean UI**: Non-overlapping text overlays with proper positioning
+- **Automatic Reconnection**: Client automatically reconnects on connection loss
+- **GPU Acceleration**: Full GPU support for both YOLO and BLIP models
+
+## Display Layout
+
+- **Top-left**: YOLO detection bounding boxes and labels
+- **Top-right**: Camera info, connection status, FPS statistics
+- **Bottom-left**: BLIP image captions (up to 3 lines)
+- **Center**: Live camera feed with detections
+
+## Performance Tuning
+
+The system is optimized for real-time performance:
+
+- **YOLO Processing**: 5 FPS (200ms intervals)
+- **BLIP Processing**: Every 3 seconds
+- **Frame Size**: 640x480 for processing
+- **JPEG Quality**: 85% for efficient transmission
 
 ## Model Management
 
-- **Client models**: Stored in `mentatClient/modelsYolo/` for local testing and
-  development
-- **Server models**: Stored in `mentatSampo/modelsYolo/` for production
-  inference
-- Each side manages its own models independently
-- Use `mentatClient/modelsDownload.py` to download models for client-side
+- **YOLO Models**: Stored in `mentatSampo/modelsYolo/`
+- **BLIP Models**: Downloaded automatically from Hugging Face
+- **Model Download**: Use `mentatClient/modelsDownload.py` for client-side
   testing
 
-## Setup Instructions
+## Troubleshooting
 
-1. **Clone the repository:**
+### Connection Issues
 
-   ```bash
-   git clone <your-repo-url>
-   cd MOE
-   ```
+- Check server IP and port in `mentatClient/config.env`
+- Ensure server is running before starting client
+- Verify firewall settings allow WebSocket connections
 
-2. **Set up the client environment:**
+### Performance Issues
 
-   ```bash
-   cd mentatClient
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
+- Reduce camera count if FPS is low
+- Increase frame intervals in client code
+- Check GPU memory usage on server
 
-3. **Download required models:**
+### Camera Issues
 
-   ```bash
-   python modelsDownload.py
-   ```
+- Verify camera indices exist on your system
+- Check camera permissions
+- Try different camera indices if some fail
 
-4. **Edit configuration files as needed:**
-   - `mentatClient/config.env` for client settings (ports, server IP, camera
-     selection)
-   - `mentatSampo/config.env` for server settings (ports, models, GPU settings)
+## Development
 
-## Notes
+### Adding New Experts
 
-- Large model files and all sensitive/large data are ignored by git (see
-  `.gitignore`).
-- Only models and dependencies actually used are included in `modelsDownload.py`
-  and `requirements.txt`.
-- The system is designed to be modular: you can run the main client/server for
-  all experts, or run individual expert client/server pairs as needed.
-- Camera indices that don't exist will be automatically disabled with a warning
-  message.
-- Client and server have separate model folders to maintain independence.
+1. Create new expert worker in `mentatSampo/experts/`
+2. Extend `baseWorker.py` class
+3. Add expert initialization in `serverMain.py`
+4. Update client to send requests to new expert
+
+### Protocol Details
+
+The system uses a simple JSON-based WebSocket protocol:
+
+**Client Request:**
+
+```json
+{
+	"expert": "YOLO|BLIP",
+	"camera_id": 0,
+	"frame": "base64_encoded_jpeg"
+}
+```
+
+**Server Response:**
+
+```json
+{
+  "detections": [...],     // YOLO only
+  "caption": "...",        // BLIP only
+  "fps": 5.2,
+  "camera_id": 0
+}
+```
+
+## License
+
+This project is for research and development purposes.
