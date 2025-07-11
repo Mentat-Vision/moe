@@ -406,8 +406,12 @@ class MultiCameraClient:
                 self.draw_blip_caption(frame, camera_name)
                 self.draw_status_info(frame, camera_name)
                 
+                # Resize frame for display to ensure consistent preview window size
+                # All cameras will display at 640x480 regardless of source resolution
+                display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+                
                 # Show window
-                cv2.imshow(f"Camera {camera_name}", frame)
+                cv2.imshow(f"Camera {camera_name}", display_frame)
             
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
