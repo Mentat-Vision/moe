@@ -1,13 +1,37 @@
-# Virtual Environment
+# Ignore Python virtual environments
+mentatClient/venv/
 venv/
 env/
 .venv/
 .env/
 
-# Yolo Models
-yoloModels/
+# Ignore all model and large files anywhere
+*.pt
+*.pth
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+*.tflite
+*.pb
+*.h5
+*.ckpt
+*.pkl
+*.joblib
 
-# Python
+# Ignore model folders
+mentatClient/experts/models*/
+mentatSampo/models*/
+modelsYolo/
+modelsChat/
+
+# Ignore server and boxhost folders
+mentatBoxhost/
+
+# Ignore config files (may contain sensitive info)
+mentatSampo/config.env
+
+# Python cache and build
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,14 +53,12 @@ wheels/
 .installed.cfg
 *.egg
 
-# IDE
+# IDE and OS files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -45,25 +67,13 @@ wheels/
 ehthumbs.db
 Thumbs.db
 
-# Logs
+# Logs and temp
 *.log
+logs.txt
+*.tmp
+*.temp
+.cache/
 
-# Model files (if any are downloaded)
-*.bin
-*.safetensors
-
-# Large Model Files - Add these lines
-modelsChat/*.gguf
-modelsYolo/*.pt
-modelsYolo/*.pth
-*.gguf
-*.pt
-*.pth
-*.bin
-*.safetensors
-*.onnx
-*.tflite
-*.pb
-
-# Log files
-logs.txt 
+# Do not ignore README or .gitignore
+!README.md
+!.gitignore 

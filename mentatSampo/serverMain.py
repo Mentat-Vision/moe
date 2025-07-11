@@ -1,146 +1,77 @@
 import asyncio
-import subprocess
-import sys
-import signal
+import websockets
+import json
+import os
 import time
-from pathlib import Path
+from datetime import datetime
 
-class ServerManager:
+def load_config():
+    """Load configuration from config.env"""
+    config = {
+        "yolo_port": 5000,
+        "blip_port": 5001
+    }
+    
+    if os.path.exists("config.env"):
+        with open("config.env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or not line:
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    if key == "YOLO_PORT":
+                        config["yolo_port"] = int(value)
+                    elif key == "BLIP_PORT":
+                        config["blip_port"] = int(value)
+    
+    return config
+
+class MultiServerManager:
     def __init__(self):
-        self.processes = []
-        self.running = True
+        self.servers = {}
+        self.connected_clients = set()
+        self.start_time = time.time()
+        self.config = load_config()
         
-        # Get the directory where this script is located
-        self.script_dir = Path(__file__).parent
-        
-        # Server configurations - Updated for WebSocket BLIP
-        self.servers = [
-            {
-                "name": "YOLO Server",
-                "script": "serverYolo.py",
-                "port": 5000,
-                "type": "websocket"
-            },
-            {
-                "name": "BLIP Server", 
-                "script": "serverBlip.py",
-                "port": 5001,
-                "type": "websocket"  # Changed from http to websocket
-            }
-        ]
-    
-    def signal_handler(self, signum, frame):
-        """Handle Ctrl+C to gracefully shutdown all servers"""
-        print("\n🛑 Shutting down all servers...")
-        self.running = False
-        self.stop_all_servers()
-        sys.exit(0)
-    
-    def start_server(self, server_config):
-        """Start a single server process"""
+    async def start_yolo_server(self):
+        """Start YOLO server"""
         try:
-            script_path = self.script_dir / server_config["script"]
-            
-            # Start the server process
-            process = subprocess.Popen(
-                [sys.executable, str(script_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            self.processes.append({
-                "process": process,
-                "config": server_config
-            })
-            
-            print(f"🚀 Started {server_config['name']} on port {server_config['port']} ({server_config['type'].upper()})")
-            return process
-            
+            # Import and start YOLO server
+            from experts.serverYolo import YOLOWebSocketServer
+            yolo_server = YOLOWebSocketServer()
+            await yolo_server.run_server()
         except Exception as e:
-            print(f"❌ Failed to start {server_config['name']}: {e}")
-            return None
+            print(f"❌ Error starting YOLO server: {e}")
     
-    def start_all_servers(self):
-        """Start all servers concurrently"""
-        print("🎯 Starting all servers...")
-        print("=" * 50)
-        
-        for server_config in self.servers:
-            self.start_server(server_config)
-            time.sleep(1)  # Small delay between starts
-        
-        print("=" * 50)
-        print("✅ All servers started!")
-        print("📊 Server Status:")
-        print(f"   • YOLO WebSocket Server: ws://0.0.0.0:5000")
-        print(f"   • BLIP WebSocket Server: ws://0.0.0.0:5001")
-        print("\n🔄 Press Ctrl+C to stop all servers")
-        print("-" * 50)
-    
-    def stop_all_servers(self):
-        """Stop all running server processes"""
-        for server_info in self.processes:
-            process = server_info["process"]
-            config = server_info["config"]
-            
-            try:
-                print(f" Stopping {config['name']}...")
-                process.terminate()
-                process.wait(timeout=5)
-                print(f"✅ {config['name']} stopped")
-            except subprocess.TimeoutExpired:
-                print(f"⚠️  Force killing {config['name']}...")
-                process.kill()
-            except Exception as e:
-                print(f"❌ Error stopping {config['name']}: {e}")
-    
-    def monitor_servers(self):
-        """Monitor server processes and restart if needed"""
-        while self.running:
-            for server_info in self.processes:
-                process = server_info["process"]
-                config = server_info["config"]
-                
-                # Check if process is still running
-                if process.poll() is not None:
-                    print(f"⚠️  {config['name']} crashed, restarting...")
-                    
-                    # Remove the dead process
-                    self.processes.remove(server_info)
-                    
-                    # Restart the server
-                    new_process = self.start_server(config)
-                    if new_process:
-                        print(f"✅ {config['name']} restarted")
-                    else:
-                        print(f"❌ Failed to restart {config['name']}")
-            
-            time.sleep(2)  # Check every 2 seconds
-    
-    def run(self):
-        """Main run method"""
-        # Set up signal handler for graceful shutdown
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        
+    async def start_blip_server(self):
+        """Start BLIP server"""
         try:
-            # Start all servers
-            self.start_all_servers()
-            
-            # Monitor servers
-            self.monitor_servers()
-            
-        except KeyboardInterrupt:
-            print("\n Received interrupt signal")
-        finally:
-            self.stop_all_servers()
+            # Import and start BLIP server
+            from experts.serverBlip import BLIPWebSocketServer
+            blip_server = BLIPWebSocketServer()
+            await blip_server.run_server()
+        except Exception as e:
+            print(f"❌ Error starting BLIP server: {e}")
+    
+    async def run_servers(self):
+        """Run all servers in parallel"""
+        print(f"🚀 Starting Multi-Server Manager")
+        print(f"🎯 YOLO Server will run on port {self.config['yolo_port']}")
+        print(f"📝 BLIP Server will run on port {self.config['blip_port']}")
+        
+        # Start both servers concurrently
+        await asyncio.gather(
+            self.start_yolo_server(),
+            self.start_blip_server()
+        )
 
-def main():
-    manager = ServerManager()
-    manager.run()
+async def main():
+    manager = MultiServerManager()
+    await manager.run_servers()
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 

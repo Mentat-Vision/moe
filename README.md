@@ -2,32 +2,75 @@
 
 A new system architecture based on mixture of experts.
 
-## Goal
+## Sampo Server (Current Backend)
 
-Build a comprehensive vision system that aggregates multiple specialized models
-(captioning, object detection, facial recognition, etc.) under one intelligent
-aggregator model.
+- **Sampo** is currently an **8x Tesla V100 GPU, 500GB RAM server** (used by
+  deo). This may change in the future to a cloud compute platform such as
+  RunPod, AWS, or Google Cloud.
 
-## Architecture
+## Project Structure
 
-- **Expert Models**: Specialized models (Captioning, Object Recognition, Facial
-  Recognition, etc)
-- **Aggregator Model**: Intelligent coordinator that processes and combines
-  expert outputs
-- **Unified Interface**: Single point of access for user interface
+- `mentatClient/` — All client-side code and dependencies
+  - `clientMain.py` — Main client program (runs all experts in parallel)
+  - `experts/` — Individual expert clients (e.g. BLIP, YOLO, Llama)
+  - `venv/` — Python virtual environment for client dependencies
+  - `config.env` — Configuration for ports, cameras, etc.
+  - `modelsDownload.py` — Downloads only the models actually used
+  - `requirements.txt` — Only the dependencies actually used
+  - `modelsYolo/` — Client-side YOLO models (for local testing)
+- `mentatSampo/` — All server-side code (run on Sampo or future cloud server)
+  - `serverMain.py` — Main server program (runs all experts in parallel)
+  - `experts/` — Individual expert servers (e.g. BLIP, YOLO, Llama)
+  - `config.env` — Server configuration (ports, models, GPU settings)
+  - `modelsYolo/` — Server-side YOLO models (for production inference)
+- `mentatBoxhost/` — (Empty, ignored by git, reserved for future use)
 
-## Current Models
+## Usage
 
-- **BLIP**: Image captioning
-- **Yolo**: Object detection
+- **Client/Server split:**
 
-## Future Models
+  - Run files in `mentatSampo/` on the server (Sampo or cloud)
+  - Run files in `mentatClient/` on your local/client machine
 
-- Object detection
-- Facial recognition
-- Scene understanding
-- Action recognition
-- And more...
+- **Main system:**
+
+  - On the client: `python clientMain.py` (runs all expert models in parallel)
+  - On the server: `python serverMain.py`
+
+- **Individual expert models:**
+
+  - On the client: `python experts/clientYolo.py` or
+    `python experts/clientBlip.py` (from within `mentatClient/`)
+  - On the server: `python experts/serverYolo.py` or
+    `python experts/serverBlip.py` (from within `mentatSampo/`)
+
+- **Configuration:**
+  - Edit `mentatClient/config.env` to set ports, server IP, and which cameras
+    are enabled
+  - Edit `mentatSampo/config.env` to set server ports, model paths, and GPU
+    settings
+
+## Camera Configuration
+
+The client configuration supports flexible camera selection:
+
+```bash
+# In mentatClient/config.env
+CAMERAS=0,1          # Use cameras 0 and 1
+CAMERAS=0             # Use only camera 0
+CAMERAS=1,3,5         # Use cameras 1, 3, and 5
+CAMERAS=0,2,4         # Use cameras 0, 2, and 4
+```
+
+## Model Management
+
+- **Client models**: Stored in `mentatClient/modelsYolo/` for local testing and
+  development
+- **Server models**: Stored in `mentatSampo/modelsYolo/` for production
+  inference
+- Each side manages its own models independently
+- Use `mentatClient/modelsDownload.py` to download models for client-side
+  testing
 
 ## Setup Instructions
 
@@ -35,12 +78,15 @@ aggregator model.
 
    ```bash
    git clone <your-repo-url>
-   cd Models
+   cd MOE
    ```
 
-2. **Install dependencies:**
+2. **Set up the client environment:**
 
    ```bash
+   cd mentatClient
+   python3 -m venv venv
+   source venv/bin/activate
    pip install -r requirements.txt
    ```
 
@@ -50,19 +96,19 @@ aggregator model.
    python modelsDownload.py
    ```
 
-4. **Manual model download (if needed):**
-   - For Llama model: Download `llama-3.2-1b-instruct-q4_k_m.gguf` from
-     [HuggingFace](https://huggingface.co/TheBloke/Llama-3.2-1B-Instruct-GGUF)
-   - Place it in `modelsChat/` directory
+4. **Edit configuration files as needed:**
+   - `mentatClient/config.env` for client settings (ports, server IP, camera
+     selection)
+   - `mentatSampo/config.env` for server settings (ports, models, GPU settings)
 
-## Usage
+## Notes
 
-- **Main system:** `python main.py`
-- **Chat analysis:** `python chat.py`
-- **Standalone YOLO:** `python yolo.py`
-
-## Repo Notes
-
-- models folder contain experimental models & not aggregated by main.py
-- Large model files are not tracked in git (see .gitignore)
-- Run `python modelsDownload.py` to get required models
+- Large model files and all sensitive/large data are ignored by git (see
+  `.gitignore`).
+- Only models and dependencies actually used are included in `modelsDownload.py`
+  and `requirements.txt`.
+- The system is designed to be modular: you can run the main client/server for
+  all experts, or run individual expert client/server pairs as needed.
+- Camera indices that don't exist will be automatically disabled with a warning
+  message.
+- Client and server have separate model folders to maintain independence.
