@@ -13,7 +13,7 @@ class ServerManager:
         # Get the directory where this script is located
         self.script_dir = Path(__file__).parent
         
-        # Server configurations
+        # Server configurations - Updated for WebSocket BLIP
         self.servers = [
             {
                 "name": "YOLO Server",
@@ -25,7 +25,7 @@ class ServerManager:
                 "name": "BLIP Server", 
                 "script": "serverBlip.py",
                 "port": 5001,
-                "type": "http"
+                "type": "websocket"  # Changed from http to websocket
             }
         ]
     
@@ -56,7 +56,7 @@ class ServerManager:
                 "config": server_config
             })
             
-            print(f"🚀 Started {server_config['name']} on port {server_config['port']}")
+            print(f"🚀 Started {server_config['name']} on port {server_config['port']} ({server_config['type'].upper()})")
             return process
             
         except Exception as e:
@@ -76,7 +76,7 @@ class ServerManager:
         print("✅ All servers started!")
         print("📊 Server Status:")
         print(f"   • YOLO WebSocket Server: ws://0.0.0.0:5000")
-        print(f"   • BLIP HTTP Server: http://0.0.0.0:5001")
+        print(f"   • BLIP WebSocket Server: ws://0.0.0.0:5001")
         print("\n🔄 Press Ctrl+C to stop all servers")
         print("-" * 50)
     
@@ -87,7 +87,7 @@ class ServerManager:
             config = server_info["config"]
             
             try:
-                print(f"�� Stopping {config['name']}...")
+                print(f" Stopping {config['name']}...")
                 process.terminate()
                 process.wait(timeout=5)
                 print(f"✅ {config['name']} stopped")
@@ -134,7 +134,7 @@ class ServerManager:
             self.monitor_servers()
             
         except KeyboardInterrupt:
-            print("\n�� Received interrupt signal")
+            print("\n Received interrupt signal")
         finally:
             self.stop_all_servers()
 

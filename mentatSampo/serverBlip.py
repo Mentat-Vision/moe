@@ -1,10 +1,13 @@
 # blip_server.py
-from flask import Flask, request, jsonify
-import torch
-from transformers import BlipProcessor, BlipForConditionalGeneration
+import asyncio
+import websockets
+import json
 import base64
 import cv2
 import numpy as np
+import torch
+from transformers import BlipProcessor, BlipForConditionalGeneration
+from datetime import datetime
 import warnings
 import os
 import gc
@@ -14,9 +17,7 @@ warnings.filterwarnings("ignore")
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 torch.set_grad_enabled(False)  # Disable gradients globally
 
-app = Flask(__name__)
-
-class BLIPServer:
+class BLIPWebSocketServer:
     def __init__(self):
         # Optimized BLIP configuration
         self.model_name = "Salesforce/blip-image-captioning-base"
@@ -43,6 +44,13 @@ class BLIPServer:
         if self.device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
+            
+        # Performance tracking
+        self.frame_count = 0
+        self.avg_fps = 0
+        self.last_time = datetime.now()
+        
+        print("🚀 BLIP model loaded successfully")
 
     def process_image(self, image_data):
         """Process image and return caption"""
@@ -81,19 +89,68 @@ class BLIPServer:
         except Exception as e:
             return f"Error processing image: {str(e)}"
 
-# Initialize BLIP server
-blip_server = BLIPServer()
+    async def process_frame(self, frame_data):
+        """Process frame and return caption results"""
+        try:
+            # Calculate FPS
+            self.frame_count += 1
+            if self.frame_count % 30 == 0:
+                current_time = datetime.now()
+                elapsed = (current_time - self.last_time).total_seconds()
+                self.avg_fps = 30 / elapsed if elapsed > 0 else 0
+                self.last_time = current_time
+            
+            # Process image and get caption
+            caption = self.process_image(frame_data)
+            
+            return {
+                "caption": caption,
+                "fps": round(self.avg_fps, 1),
+                "frame_count": self.frame_count
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
 
-@app.route('/caption', methods=['POST'])
-def caption():
-    data = request.get_json()
-    image_data = data.get("image", "")
-    
-    if not image_data:
-        return jsonify({"error": "No image data provided"}), 400
-    
-    caption = blip_server.process_image(image_data)
-    return jsonify({"caption": caption})
+    async def handle_client(self, websocket, path):
+        """Handle WebSocket client connection"""
+        client_id = id(websocket)
+        print(f" Client {client_id} connected")
+        
+        try:
+            async for message in websocket:
+                if isinstance(message, str):
+                    # Handle JSON messages (commands, etc.)
+                    data = json.loads(message)
+                    if data.get("type") == "ping":
+                        await websocket.send(json.dumps({"type": "pong"}))
+                else:
+                    # Handle binary frame data
+                    frame_data = base64.b64encode(message).decode('utf-8')
+                    results = await self.process_frame(frame_data)
+                    await websocket.send(json.dumps(results))
+                    
+        except websockets.exceptions.ConnectionClosed:
+            print(f" Client {client_id} disconnected")
+        except Exception as e:
+            print(f"❌ Error handling client {client_id}: {e}")
 
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5001) 
+async def main():
+    server = BLIPWebSocketServer()
+    
+    # Start WebSocket server
+    start_server = websockets.serve(
+        server.handle_client, 
+        "0.0.0.0", 
+        5001,  # Using port 5001 as requested
+        max_size=10 * 1024 * 1024  # 10MB max message size
+    )
+    
+    print("🚀 BLIP WebSocket Server starting on ws://0.0.0.0:5001")
+    print("📊 Ready to process real-time BLIP captions")
+    
+    await start_server
+    await asyncio.Future()  # Run forever
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
