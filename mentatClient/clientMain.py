@@ -10,6 +10,41 @@ import time
 import threading
 import os
 
+def load_config():
+    """Load configuration from config.env"""
+    config = {
+        "ENABLE_WINDOW_PREVIEW": True,  # Default to True
+        "SERVER_IP": "10.8.162.58",
+        "SERVER_PORT": "5000"
+    }
+    
+    if os.path.exists("config.env"):
+        with open("config.env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or not line or "=" not in line:
+                    continue
+                
+                try:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # Remove inline comments (everything after #)
+                    if "#" in value:
+                        value = value.split("#")[0].strip()
+                    
+                    if key == "ENABLE_WINDOW_PREVIEW":
+                        config[key] = value.lower() == "true"
+                    elif key in ["SERVER_IP", "SERVER_PORT"]:
+                        config[key] = value
+                        
+                except ValueError:
+                    print(f"❌ Invalid configuration line: {line}")
+                    continue
+    
+    return config
+
 def get_enabled_cameras():
     """Get list of enabled cameras from config.env"""
     cameras = {}
@@ -63,6 +98,8 @@ def get_enabled_cameras():
 
 class MultiCameraClient:
     def __init__(self):
+        # Load configuration
+        self.config = load_config()
         self.cameras = get_enabled_cameras()
         
         if not self.cameras:
@@ -107,22 +144,19 @@ class MultiCameraClient:
             self.last_yolo_time[camera_name] = 0
             self.last_blip_time[camera_name] = 0
             self.camera_status[camera_name] = {"working": True, "failures": 0}
+        
+        # Print window preview status
+        if self.config["ENABLE_WINDOW_PREVIEW"]:
+            print("🖥️ Window preview: ENABLED")
+        else:
+            print("🖥️ Window preview: DISABLED (web streaming still active)")
     
     async def connect_to_server(self, camera_name):
         """Connect to central WebSocket server for specific camera"""
         try:
-            # Read server URL from config.env
-            server_ip = "10.8.162.58"
-            server_port = "5000"
-            
-            if os.path.exists("config.env"):
-                with open("config.env", "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("SERVER_IP="):
-                            server_ip = line.split("=", 1)[1]
-                        elif line.startswith("SERVER_PORT="):
-                            server_port = line.split("=", 1)[1]
+            # Use config values
+            server_ip = self.config["SERVER_IP"]
+            server_port = self.config["SERVER_PORT"]
             
             server_url = f"ws://{server_ip}:{server_port}"
             self.websockets[camera_name] = await websockets.connect(server_url)
@@ -366,7 +400,11 @@ class MultiCameraClient:
             return
         
         print("🎥 Multi-Camera Client running with central server architecture.")
-        print("Press 'q' to quit.")
+        if self.config["ENABLE_WINDOW_PREVIEW"]:
+            print("Press 'q' to quit.")
+        else:
+            print("Running in headless mode (no window preview).")
+            print("Press Ctrl+C to quit.")
         
         while True:
             current_time = time.time()
@@ -400,26 +438,35 @@ class MultiCameraClient:
                     await self.send_frame_to_expert(camera_name, frame, "BLIP")
                     self.last_blip_time[camera_name] = current_time
                 
-                # Draw overlays
-                self.draw_yolo_detections(frame, camera_name)
-                self.draw_person_ids(frame, camera_name)
-                self.draw_blip_caption(frame, camera_name)
-                self.draw_status_info(frame, camera_name)
-                
-                # Resize frame for display to ensure consistent preview window size
-                # All cameras will display at 640x480 regardless of source resolution
-                display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-                
-                # Show window
-                cv2.imshow(f"Camera {camera_name}", display_frame)
+                # Only draw overlays and show windows if preview is enabled
+                if self.config["ENABLE_WINDOW_PREVIEW"]:
+                    # Draw overlays
+                    self.draw_yolo_detections(frame, camera_name)
+                    self.draw_person_ids(frame, camera_name)
+                    self.draw_blip_caption(frame, camera_name)
+                    self.draw_status_info(frame, camera_name)
+                    
+                    # Resize frame for display to ensure consistent preview window size
+                    # All cameras will display at 640x480 regardless of source resolution
+                    display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+                    
+                    # Show window
+                    cv2.imshow(f"Camera {camera_name}", display_frame)
             
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            # Handle quit key only if window preview is enabled
+            if self.config["ENABLE_WINDOW_PREVIEW"]:
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            else:
+                # In headless mode, just sleep a bit to prevent busy waiting
+                await asyncio.sleep(0.01)
         
         # Cleanup
         for cap in caps.values():
             cap.release()
-        cv2.destroyAllWindows()
+        
+        if self.config["ENABLE_WINDOW_PREVIEW"]:
+            cv2.destroyAllWindows()
         
         # Close WebSocket connections
         for websocket in self.websockets.values():
@@ -432,6 +479,8 @@ def main():
     except ValueError as e:
         print(f"❌ {e}")
         print("💡 To enable cameras, edit config.env and uncomment the cameras you want to use.")
+    except KeyboardInterrupt:
+        print("\n🛑 Client stopped by user (Ctrl+C)")
 
 if __name__ == "__main__":
     main()
