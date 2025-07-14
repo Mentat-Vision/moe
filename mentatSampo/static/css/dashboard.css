@@ -170,6 +170,77 @@ body {
 	color: #8b949e;
 }
 
+/* Resolution Controls */
+.resolution-controls {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+	gap: 15px;
+	align-items: center;
+}
+
+.resolution-group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	background: #21262d;
+	padding: 12px;
+	border-radius: 6px;
+	border: 1px solid #30363d;
+}
+
+.resolution-group label {
+	font-size: 0.9em;
+	font-weight: 500;
+	color: #f0f6fc;
+}
+
+.resolution-group input[type='range'] {
+	width: 100%;
+	height: 6px;
+	border-radius: 3px;
+	background: #30363d;
+	outline: none;
+	-webkit-appearance: none;
+}
+
+.resolution-group input[type='range']::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #58a6ff;
+	cursor: pointer;
+}
+
+.resolution-group input[type='range']::-moz-range-thumb {
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #58a6ff;
+	cursor: pointer;
+	border: none;
+}
+
+.resolution-group span {
+	font-size: 0.8em;
+	color: #8b949e;
+	text-align: center;
+	font-weight: 500;
+}
+
+.scale-info {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 5px;
+}
+
+.info-text {
+	font-size: 0.7em;
+	color: #8b949e;
+	font-style: italic;
+}
+
 .server-stats {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

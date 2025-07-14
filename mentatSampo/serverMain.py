@@ -67,7 +67,12 @@ class CentralWebSocketServer:
         @self.flask_app.route('/')
         def dashboard():
             """Main dashboard page"""
-            return render_template('dashboard.html', ai_models=AI_MODELS)
+            # Get current processing scale from config
+            processing_scale = float(self.config.get("PROCESSING_SCALE", 0.5))
+            
+            return render_template('dashboard.html', 
+                                ai_models=AI_MODELS,
+                                processing_scale=processing_scale)
         
         @self.flask_app.route('/api/cameras')
         def get_cameras():
@@ -136,6 +141,51 @@ class CentralWebSocketServer:
             """Get server statistics"""
             return jsonify(self.get_server_stats())
         
+        @self.flask_app.route('/api/resolution/update', methods=['POST'])
+        def update_resolution():
+            """Update resolution settings live"""
+            try:
+                data = request.get_json()
+                setting = data.get('setting')
+                value = data.get('value')
+                
+                if not setting or value is None:
+                    return jsonify({"error": "Missing setting or value"}), 400
+                
+                # Update the config
+                self.config[setting] = str(value)
+                
+                # Update config file
+                self.update_config_file(setting, str(value))
+                
+                # Broadcast to connected clients if it's a client setting
+                if setting == 'CLIENT_PREVIEW_SCALE':
+                    self.broadcast_resolution_update(setting, value)
+                
+                print(f"🔧 Live resolution update: {setting} = {value}")
+                
+                return jsonify({
+                    "success": True,
+                    "setting": setting,
+                    "value": value,
+                    "message": f"Resolution updated: {setting} = {value}"
+                })
+                
+            except Exception as e:
+                print(f"❌ Error updating resolution: {e}")
+                return jsonify({"error": str(e)}), 500
+        
+        @self.flask_app.route('/api/resolution/current')
+        def get_current_resolution():
+            """Get current resolution settings"""
+            try:
+                return jsonify({
+                    "PROCESSING_SCALE": float(self.config.get("PROCESSING_SCALE", 0.5))
+                })
+            except Exception as e:
+                print(f"❌ Error getting resolution settings: {e}")
+                return jsonify({"error": str(e)}), 500
+        
         @self.flask_app.route('/api/camera/<camera_id>/debug')
         def get_camera_debug(camera_id):
             """Debug endpoint to see raw camera data structure"""
@@ -199,10 +249,30 @@ class CentralWebSocketServer:
             else:
                 emit('error', {'message': f'Camera {camera_id} not found'})
     
+    def resize_frame_for_processing(self, frame, scale_factor):
+        """Resize frame for AI processing based on scale factor"""
+        if frame is None or scale_factor <= 0:
+            return frame
+        
+        current_height, current_width = frame.shape[:2]
+        
+        # Calculate new dimensions based on scale factor
+        new_width = int(current_width * scale_factor)
+        new_height = int(current_height * scale_factor)
+        
+        # Only resize if scale factor is not 1.0
+        if scale_factor != 1.0:
+            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        return frame
+
     def generate_frames(self, camera_id):
         """Generate video frames for web streaming"""
         last_frame_time = 0
         frame_interval = 0.2  # 5 FPS for web streaming (reduced from 10 FPS)
+        
+        # Get web display scale from config
+        web_scale = float(self.config.get("WEB_DISPLAY_SCALE", 0.5))
         
         # Ensure camera_id is string for consistency
         camera_id = str(camera_id)
@@ -213,8 +283,8 @@ class CentralWebSocketServer:
             if camera_id in self.camera_frames and (current_time - last_frame_time) >= frame_interval:
                 frame = self.camera_frames[camera_id].copy()
                 
-                # Resize frame for web display to reduce bandwidth
-                frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+                # Resize frame for web display based on config
+                frame = self.resize_frame_for_processing(frame, web_scale)
                 
                 # Draw overlays on frame for web display
                 self.draw_overlays_on_frame(frame, camera_id)
@@ -245,10 +315,25 @@ class CentralWebSocketServer:
             detections = yolo_results['detections']
             colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
             
-            # Get frame dimensions for scaling
-            frame_height, frame_width = frame.shape[:2]
-            scale_x = frame_width / 640.0
-            scale_y = frame_height / 480.0
+            # Get processing scale from config
+            processing_scale = float(self.config.get("PROCESSING_SCALE", 0.5))
+            
+            # Get current frame dimensions (this is the display frame, already resized for web)
+            display_height, display_width = frame.shape[:2]
+            
+            # The bounding boxes were calculated on frames scaled by processing_scale
+            # We need to scale them from the processing size to the display size
+            # Since the display frame has already been resized for web display,
+            # we need to account for both the processing scale and any web display scaling
+            
+            # Calculate the scaling factors
+            # The bounding boxes are in the coordinate system of the processed frame
+            # We need to scale them to the display frame size
+            # The display frame has been resized by web_scale, so we need to account for both
+            # processing_scale and web_scale
+            web_scale = float(self.config.get("WEB_DISPLAY_SCALE", 0.5))
+            scale_x = (1.0 / processing_scale) * web_scale
+            scale_y = (1.0 / processing_scale) * web_scale
             
             for i, detection in enumerate(detections):
                 bbox = detection["bbox"]
@@ -401,9 +486,12 @@ class CentralWebSocketServer:
             if not pending_workers:
                 await self.send_combined_result(websocket, cam_id, results)
         
-        # Send frame to all workers
+        # Send frame to all workers with same processing scale
+        scale_factor = float(self.config.get("PROCESSING_SCALE", 0.5))
+        processed_frame = self.resize_frame_for_processing(frame, scale_factor)
+        
         for worker_name, worker in self.workers.items():
-            await worker.add_job(camera_id, frame, collect_result)
+            await worker.add_job(camera_id, processed_frame, collect_result)
         
         # If no workers are available, send empty result
         if not self.workers:
@@ -419,6 +507,12 @@ class CentralWebSocketServer:
             await websocket.send(json.dumps({"error": f"Expert '{expert_type}' not available"}))
             return
         
+        # Get processing scale from config (same for all experts)
+        scale_factor = float(self.config.get("PROCESSING_SCALE", 0.5))
+        
+        # Resize frame for AI processing
+        processed_frame = self.resize_frame_for_processing(frame, scale_factor)
+        
         # Create callback to send result directly
         async def send_result(cam_id, worker_name, result):
             """Callback to send worker result directly"""
@@ -427,9 +521,9 @@ class CentralWebSocketServer:
             # Store result for web dashboard
             self.update_camera_data(cam_id, worker_name, result)
         
-        # Send frame to specific worker
+        # Send processed frame to specific worker
         worker = self.workers[expert_type]
-        await worker.add_job(camera_id, frame, send_result)
+        await worker.add_job(camera_id, processed_frame, send_result)
 
     async def send_combined_result(self, websocket, camera_id, results):
         """Send combined results from all workers to client"""
@@ -485,6 +579,55 @@ class CentralWebSocketServer:
         
         # Broadcast stats update to SocketIO clients
         self.broadcast_camera_stats(camera_id)
+
+    def update_config_file(self, setting, value):
+        """Update config file with new setting"""
+        try:
+            config_file = "config.env"
+            if not os.path.exists(config_file):
+                return
+            
+            # Read current config
+            with open(config_file, 'r') as f:
+                lines = f.readlines()
+            
+            # Find and update the setting
+            updated = False
+            for i, line in enumerate(lines):
+                if line.strip().startswith(f"{setting}="):
+                    lines[i] = f"{setting}={value}\n"
+                    updated = True
+                    break
+            
+            # If setting wasn't found, add it
+            if not updated:
+                lines.append(f"{setting}={value}\n")
+            
+            # Write back to file
+            with open(config_file, 'w') as f:
+                f.writelines(lines)
+                
+            print(f"💾 Config updated: {setting}={value}")
+            
+        except Exception as e:
+            print(f"❌ Error updating config file: {e}")
+
+    def broadcast_resolution_update(self, setting, value):
+        """Broadcast resolution update to connected clients"""
+        try:
+            update_data = {
+                'type': 'resolution_update',
+                'setting': setting,
+                'value': value,
+                'timestamp': time.time()
+            }
+            
+            # Broadcast to all connected clients
+            self.socketio.emit('resolution_update', update_data)
+            print(f"📡 Broadcasting resolution update: {setting} = {value}")
+            
+        except Exception as e:
+            print(f"❌ Error broadcasting resolution update: {e}")
 
     def broadcast_camera_stats(self, camera_id):
         """Broadcast camera stats to SocketIO clients subscribed to this camera"""

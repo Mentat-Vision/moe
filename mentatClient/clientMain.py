@@ -128,6 +128,9 @@ class MultiCameraClient:
         # Camera status tracking
         self.camera_status = {}
         
+        # Processing scale (will be updated from server)
+        self.processing_scale = 0.5
+        
         # Initialize data structures for each camera
         for camera_name in self.cameras:
             self.yolo_data[camera_name] = {
@@ -150,6 +153,9 @@ class MultiCameraClient:
             print("🖥️ Window preview: ENABLED")
         else:
             print("🖥️ Window preview: DISABLED (web streaming still active)")
+        
+        # Start listening for resolution updates
+        self.start_resolution_listener()
     
     async def connect_to_server(self, camera_name):
         """Connect to central WebSocket server for specific camera"""
@@ -172,11 +178,19 @@ class MultiCameraClient:
         try:
             cap = cv2.VideoCapture(camera_source)
             
+            # Get client preview scale from config
+            preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
+            
             # Set properties for better performance
             if isinstance(camera_source, int):
-                # Webcam settings
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                # Webcam settings - use scale to calculate target resolution
+                # Assume 1920x1080 as base resolution for webcams
+                base_width, base_height = 1920, 1080
+                target_width = int(base_width * preview_scale)
+                target_height = int(base_height * preview_scale)
+                
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
                 cap.set(cv2.CAP_PROP_FPS, 30)
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             else:
@@ -205,8 +219,9 @@ class MultiCameraClient:
             return
         
         try:
-            # Resize frame for processing
-            frame_resized = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+            # Send frame at original resolution - server will handle scaling
+            # This ensures client and server are in sync
+            frame_resized = frame  # No resizing on client side
             
             # Encode frame as base64
             _, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -264,10 +279,18 @@ class MultiCameraClient:
         """Draw YOLO detections on frame"""
         detections = self.yolo_data[camera_name]["detections"]
         
-        # Get scaling factors between processing size (640x480) and display size
+        # Use current processing scale from server
+        processing_scale = self.processing_scale
+        
+        # Get current frame dimensions
         frame_height, frame_width = frame.shape[:2]
-        scale_x = frame_width / 640.0
-        scale_y = frame_height / 480.0
+        
+        # The bounding boxes were calculated on frames scaled by processing_scale
+        # We need to scale them from the processing size to the display size
+        # The display frame is also scaled by client preview scale
+        preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
+        scale_x = (1.0 / processing_scale) * preview_scale
+        scale_y = (1.0 / processing_scale) * preview_scale
         
         for i, detection in enumerate(detections):
             bbox = detection["bbox"]
@@ -295,10 +318,18 @@ class MultiCameraClient:
         """Draw person IDs on bounding boxes"""
         person_detections = self.yolo_data[camera_name]["person_detections"]
         
-        # Get scaling factors between processing size (640x480) and display size
+        # Use current processing scale from server
+        processing_scale = self.processing_scale
+        
+        # Get current frame dimensions
         frame_height, frame_width = frame.shape[:2]
-        scale_x = frame_width / 640.0
-        scale_y = frame_height / 480.0
+        
+        # The bounding boxes were calculated on frames scaled by processing_scale
+        # We need to scale them from the processing size to the display size
+        # The display frame is also scaled by client preview scale
+        preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
+        scale_x = (1.0 / processing_scale) * preview_scale
+        scale_y = (1.0 / processing_scale) * preview_scale
         
         for person in person_detections:
             bbox = person["bbox"]
@@ -446,9 +477,14 @@ class MultiCameraClient:
                     self.draw_blip_caption(frame, camera_name)
                     self.draw_status_info(frame, camera_name)
                     
-                    # Resize frame for display to ensure consistent preview window size
-                    # All cameras will display at 640x480 regardless of source resolution
-                    display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+                    # Resize frame for display using client preview scale
+                    # Get client preview scale from config
+                    preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
+                    
+                    # Calculate display dimensions based on scale
+                    display_width = int(frame.shape[1] * preview_scale)
+                    display_height = int(frame.shape[0] * preview_scale)
+                    display_frame = cv2.resize(frame, (display_width, display_height), interpolation=cv2.INTER_AREA)
                     
                     # Show window
                     cv2.imshow(f"Camera {camera_name}", display_frame)
@@ -471,6 +507,45 @@ class MultiCameraClient:
         # Close WebSocket connections
         for websocket in self.websockets.values():
             await websocket.close()
+    
+    def start_resolution_listener(self):
+        """Start listening for resolution updates from server"""
+        try:
+            import threading
+            import requests
+            
+            def listen_for_updates():
+                """Background thread to listen for resolution updates"""
+                while True:
+                    try:
+                        # Poll server for resolution updates
+                        response = requests.get(f"http://{self.config['SERVER_IP']}:5002/api/resolution/current", 
+                                             timeout=5)
+                        if response.status_code == 200:
+                            data = response.json()
+                            self.update_resolution_settings(data)
+                    except Exception as e:
+                        pass  # Silent fail for background polling
+                    
+                    time.sleep(10)  # Check every 10 seconds
+            
+            # Start background thread
+            thread = threading.Thread(target=listen_for_updates, daemon=True)
+            thread.start()
+            print("📡 Resolution listener started")
+            
+        except Exception as e:
+            print(f"❌ Error starting resolution listener: {e}")
+    
+    def update_resolution_settings(self, settings):
+        """Update resolution settings from server"""
+        try:
+            if 'PROCESSING_SCALE' in settings:
+                self.processing_scale = float(settings['PROCESSING_SCALE'])
+                print(f"🔧 Processing scale updated: {self.processing_scale}")
+                
+        except Exception as e:
+            print(f"❌ Error updating resolution settings: {e}")
 
 def main():
     try:

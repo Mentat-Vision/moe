@@ -557,6 +557,45 @@ DashboardClient = class extends originalDashboardClient {
 	}
 };
 
+// Live resolution control
+async function updateResolution(setting, value) {
+	try {
+		console.log(`🔄 Updating resolution: ${setting} = ${value}`);
+
+		// Update the input value if it's the processing scale
+		if (setting === 'PROCESSING_SCALE') {
+			const inputElement = document.getElementById('processing-scale');
+			if (inputElement) {
+				inputElement.value = value;
+			}
+		}
+
+		// Send update to server
+		const response = await fetch('/api/resolution/update', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ setting: setting, value: parseFloat(value) }),
+		});
+
+		if (response.ok) {
+			const data = await response.json();
+			console.log(`✅ Resolution updated: ${data.message}`);
+
+			// If client scale was updated, also update client preview scale
+			if (setting === 'CLIENT_PREVIEW_SCALE') {
+				// This will be handled by the server to notify clients
+				console.log(
+					'📡 Client preview scale updated - clients will be notified'
+				);
+			}
+		} else {
+			console.error('❌ Failed to update resolution');
+		}
+	} catch (error) {
+		console.error('❌ Error updating resolution:', error);
+	}
+}
+
 // Initialize dashboard when page loads
 document.addEventListener('DOMContentLoaded', () => {
 	// Initialize AI models from server data
