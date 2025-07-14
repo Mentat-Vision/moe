@@ -10,6 +10,14 @@ from datetime import datetime
 from flask import Flask, render_template, jsonify, Response, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import threading
+from utils.resolution import (
+    resize_frame_for_processing, 
+    scale_bounding_boxes_for_display,
+    scale_bounding_boxes_from_processed_to_display,
+    draw_detections_on_frame,
+    get_processing_scale_from_config,
+    validate_scale_factor
+)
 
 def load_config():
     """Load configuration from config.env"""
@@ -149,11 +157,17 @@ class CentralWebSocketServer:
                 setting = data.get('setting')
                 value = data.get('value')
                 
+                print(f"🔧 Received resolution update request: {setting} = {value}")
+                
                 if not setting or value is None:
+                    print(f"❌ Missing setting or value: setting={setting}, value={value}")
                     return jsonify({"error": "Missing setting or value"}), 400
                 
                 # Update the config
+                old_value = self.config.get(setting, "not set")
                 self.config[setting] = str(value)
+                
+                print(f"🔧 Updated config: {setting} = {old_value} -> {value}")
                 
                 # Update config file
                 self.update_config_file(setting, str(value))
@@ -249,46 +263,32 @@ class CentralWebSocketServer:
             else:
                 emit('error', {'message': f'Camera {camera_id} not found'})
     
-    def resize_frame_for_processing(self, frame, scale_factor):
-        """Resize frame for AI processing based on scale factor"""
-        if frame is None or scale_factor <= 0:
-            return frame
-        
-        current_height, current_width = frame.shape[:2]
-        
-        # Calculate new dimensions based on scale factor
-        new_width = int(current_width * scale_factor)
-        new_height = int(current_height * scale_factor)
-        
-        # Only resize if scale factor is not 1.0
-        if scale_factor != 1.0:
-            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        return frame
-
     def generate_frames(self, camera_id):
         """Generate video frames for web streaming"""
         last_frame_time = 0
         frame_interval = 0.2  # 5 FPS for web streaming (reduced from 10 FPS)
+
+        # Use processing scale for web display
+        processing_scale = get_processing_scale_from_config(self.config)
         
-        # Get web display scale from config
-        web_scale = float(self.config.get("WEB_DISPLAY_SCALE", 0.5))
-        
+        # Debug: Print current processing scale
+        print(f"🔧 Web display using processing scale: {processing_scale}")
+
         # Ensure camera_id is string for consistency
         camera_id = str(camera_id)
-        
+
         while True:
             current_time = time.time()
-            
+
             if camera_id in self.camera_frames and (current_time - last_frame_time) >= frame_interval:
                 frame = self.camera_frames[camera_id].copy()
-                
-                # Resize frame for web display based on config
-                frame = self.resize_frame_for_processing(frame, web_scale)
-                
+
+                # Resize frame for web display using processing scale
+                frame = resize_frame_for_processing(frame, processing_scale)
+
                 # Draw overlays on frame for web display
                 self.draw_overlays_on_frame(frame, camera_id)
-                
+
                 # Encode frame as JPEG with lower quality for better performance
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ret:
@@ -296,67 +296,39 @@ class CentralWebSocketServer:
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     last_frame_time = current_time
-            
+
             time.sleep(0.05)  # Small sleep to prevent busy waiting
     
     def draw_overlays_on_frame(self, frame, camera_id):
         """Draw YOLO detections on frame for web display (no BLIP captions)"""
         # Ensure camera_id is string for consistency
         camera_id = str(camera_id)
-        
+
         if camera_id not in self.latest_results:
             return
-            
+
         results = self.latest_results[camera_id]
-        
+
         # Draw YOLO detections - only if YOLO is enabled globally
         yolo_results = results.get('yolo') or results.get('YOLO')
         if yolo_results and 'detections' in yolo_results and AI_MODELS['yolo']['enabled']:
             detections = yolo_results['detections']
-            colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
             
             # Get processing scale from config
-            processing_scale = float(self.config.get("PROCESSING_SCALE", 0.5))
+            processing_scale = get_processing_scale_from_config(self.config)
             
-            # Get current frame dimensions (this is the display frame, already resized for web)
-            display_height, display_width = frame.shape[:2]
+            # Get display frame dimensions
+            display_shape = frame.shape
             
-            # The bounding boxes were calculated on frames scaled by processing_scale
-            # We need to scale them from the processing size to the display size
-            # Since the display frame has already been resized for web display,
-            # we need to account for both the processing scale and any web display scaling
+            # Scale bounding boxes from processed frame coordinates to display frame coordinates
+            scaled_detections = scale_bounding_boxes_from_processed_to_display(
+                detections, 
+                processing_scale,
+                display_shape
+            )
             
-            # Calculate the scaling factors
-            # The bounding boxes are in the coordinate system of the processed frame
-            # We need to scale them to the display frame size
-            # The display frame has been resized by web_scale, so we need to account for both
-            # processing_scale and web_scale
-            web_scale = float(self.config.get("WEB_DISPLAY_SCALE", 0.5))
-            scale_x = (1.0 / processing_scale) * web_scale
-            scale_y = (1.0 / processing_scale) * web_scale
-            
-            for i, detection in enumerate(detections):
-                bbox = detection["bbox"]
-                class_name = detection["class"]
-                confidence = detection["confidence"]
-                
-                color = colors[i % len(colors)]
-                
-                # Scale bounding box coordinates to match display frame size
-                x1 = int(bbox[0] * scale_x)
-                y1 = int(bbox[1] * scale_y)
-                x2 = int(bbox[2] * scale_x)
-                y2 = int(bbox[3] * scale_y)
-                
-                # Draw bounding box with thicker lines for better visibility
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-                
-                label = f"{class_name} {confidence:.2f}"
-                (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-                cv2.rectangle(frame, (x1, y1 - text_height - 10), 
-                             (x1 + text_width + 10, y1), color, -1)
-                cv2.putText(frame, label, (x1 + 5, y1 - 5), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Draw the scaled detections
+            draw_detections_on_frame(frame, scaled_detections)
         
         # Removed BLIP caption drawing - captions only show in HTML dashboard
 
@@ -487,8 +459,13 @@ class CentralWebSocketServer:
                 await self.send_combined_result(websocket, cam_id, results)
         
         # Send frame to all workers with same processing scale
-        scale_factor = float(self.config.get("PROCESSING_SCALE", 0.5))
-        processed_frame = self.resize_frame_for_processing(frame, scale_factor)
+        scale_factor = get_processing_scale_from_config(self.config)
+        processed_frame = resize_frame_for_processing(frame, scale_factor)
+        
+        # Debug: Print frame dimensions
+        original_shape = frame.shape
+        processed_shape = processed_frame.shape
+        print(f"🔧 Processing frame: {original_shape} -> {processed_shape} (scale: {scale_factor})")
         
         for worker_name, worker in self.workers.items():
             await worker.add_job(camera_id, processed_frame, collect_result)
@@ -508,10 +485,10 @@ class CentralWebSocketServer:
             return
         
         # Get processing scale from config (same for all experts)
-        scale_factor = float(self.config.get("PROCESSING_SCALE", 0.5))
+        scale_factor = get_processing_scale_from_config(self.config)
         
         # Resize frame for AI processing
-        processed_frame = self.resize_frame_for_processing(frame, scale_factor)
+        processed_frame = resize_frame_for_processing(frame, scale_factor)
         
         # Create callback to send result directly
         async def send_result(cam_id, worker_name, result):

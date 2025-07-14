@@ -9,6 +9,15 @@ from datetime import datetime
 import time
 import threading
 import os
+import sys
+
+# Add the server utils to the path so we can import them
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'mentatSampo'))
+from utils.resolution import (
+    scale_bounding_boxes_for_display,
+    draw_detections_on_frame,
+    validate_scale_factor
+)
 
 def load_config():
     """Load configuration from config.env"""
@@ -38,7 +47,9 @@ def load_config():
                         config[key] = value.lower() == "true"
                     elif key in ["SERVER_IP", "SERVER_PORT"]:
                         config[key] = value
-                        
+                    # CLIENT_PREVIEW_SCALE is no longer supported
+                    # Only PROCESSING_SCALE is used for preview and bounding box scaling
+                
                 except ValueError:
                     print(f"❌ Invalid configuration line: {line}")
                     continue
@@ -177,18 +188,15 @@ class MultiCameraClient:
         """Open camera (webcam or RTSP stream)"""
         try:
             cap = cv2.VideoCapture(camera_source)
-            
-            # Get client preview scale from config
-            preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
-            
+
             # Set properties for better performance
             if isinstance(camera_source, int):
                 # Webcam settings - use scale to calculate target resolution
                 # Assume 1920x1080 as base resolution for webcams
                 base_width, base_height = 1920, 1080
-                target_width = int(base_width * preview_scale)
-                target_height = int(base_height * preview_scale)
-                
+                target_width = int(base_width * self.processing_scale)
+                target_height = int(base_height * self.processing_scale)
+
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
                 cap.set(cv2.CAP_PROP_FPS, 30)
@@ -198,17 +206,17 @@ class MultiCameraClient:
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 cap.set(cv2.CAP_PROP_FPS, 25)
                 # Don't force resolution for RTSP - let it use native resolution
-            
+
             if not cap.isOpened():
                 print(f"❌ Failed to open camera {camera_name} ({camera_source})")
                 return None
-            
+
             # Get actual resolution
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             print(f"✅ Camera {camera_name} opened successfully ({width}x{height})")
             return cap
-            
+
         except Exception as e:
             print(f"❌ Error opening camera {camera_name}: {e}")
             return None
@@ -279,75 +287,59 @@ class MultiCameraClient:
         """Draw YOLO detections on frame"""
         detections = self.yolo_data[camera_name]["detections"]
         
-        # Use current processing scale from server
-        processing_scale = self.processing_scale
+        if not detections:
+            return
         
-        # Get current frame dimensions
-        frame_height, frame_width = frame.shape[:2]
+        # Get the original frame dimensions (before any scaling)
+        # Since we're drawing on the display frame, we need to scale from processed to display
+        # The processed frame was scaled by processing_scale, but the display frame is fixed size
+        original_width = 1920  # Assume original camera resolution
+        original_height = 1080
+        display_width = 640   # Fixed display size
+        display_height = 480
         
-        # The bounding boxes were calculated on frames scaled by processing_scale
-        # We need to scale them from the processing size to the display size
-        # The display frame is also scaled by client preview scale
-        preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
-        scale_x = (1.0 / processing_scale) * preview_scale
-        scale_y = (1.0 / processing_scale) * preview_scale
+        # Scale bounding boxes from processed frame coordinates to display frame coordinates
+        scaled_detections = scale_bounding_boxes_for_display(
+            detections,
+            (original_height, original_width),
+            (display_height, display_width)
+        )
         
-        for i, detection in enumerate(detections):
-            bbox = detection["bbox"]
-            class_name = detection["class"]
-            confidence = detection["confidence"]
-            
-            color = self.colors[i % len(self.colors)]
-            
-            # Scale bounding box coordinates to match display frame size
-            x1 = int(bbox[0] * scale_x)
-            y1 = int(bbox[1] * scale_y)
-            x2 = int(bbox[2] * scale_x)
-            y2 = int(bbox[3] * scale_y)
-            
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            
-            label = f"{class_name} {confidence:.2f}"
-            (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(frame, (x1, y1 - text_height - 10), 
-                         (x1 + text_width + 10, y1), color, -1)
-            cv2.putText(frame, label, (x1 + 5, y1 - 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # Draw the scaled detections
+        draw_detections_on_frame(frame, scaled_detections)
     
     def draw_person_ids(self, frame, camera_name):
         """Draw person IDs on bounding boxes"""
         person_detections = self.yolo_data[camera_name]["person_detections"]
         
-        # Use current processing scale from server
-        processing_scale = self.processing_scale
+        if not person_detections:
+            return
         
-        # Get current frame dimensions
-        frame_height, frame_width = frame.shape[:2]
+        # Get the original frame dimensions (before any scaling)
+        original_width = 1920  # Assume original camera resolution
+        original_height = 1080
+        display_width = 640   # Fixed display size
+        display_height = 480
         
-        # The bounding boxes were calculated on frames scaled by processing_scale
-        # We need to scale them from the processing size to the display size
-        # The display frame is also scaled by client preview scale
-        preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
-        scale_x = (1.0 / processing_scale) * preview_scale
-        scale_y = (1.0 / processing_scale) * preview_scale
+        # Scale bounding boxes from processed frame coordinates to display frame coordinates
+        scaled_detections = scale_bounding_boxes_for_display(
+            person_detections,
+            (original_height, original_width),
+            (display_height, display_width)
+        )
         
-        for person in person_detections:
+        # Draw person IDs on the scaled detections
+        for person in scaled_detections:
             bbox = person["bbox"]
             
             # Only draw ID if it exists in the detection
             if "id" in person:
                 person_id = person["id"]
                 
-                # Scale bounding box coordinates to match display frame size
-                x1 = int(bbox[0] * scale_x)
-                y1 = int(bbox[1] * scale_y)
-                x2 = int(bbox[2] * scale_x)
-                y2 = int(bbox[3] * scale_y)
-                
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 0, 255), 2)
                 
                 id_text = f"ID: {person_id}"
-                cv2.putText(frame, id_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
+                cv2.putText(frame, id_text, (bbox[0], bbox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 
                            0.7, (255, 255, 255), 2, cv2.LINE_AA)
     
     def draw_blip_caption(self, frame, camera_name):
@@ -476,16 +468,12 @@ class MultiCameraClient:
                     self.draw_person_ids(frame, camera_name)
                     self.draw_blip_caption(frame, camera_name)
                     self.draw_status_info(frame, camera_name)
-                    
-                    # Resize frame for display using client preview scale
-                    # Get client preview scale from config
-                    preview_scale = float(self.config.get("CLIENT_PREVIEW_SCALE", 0.5))
-                    
-                    # Calculate display dimensions based on scale
-                    display_width = int(frame.shape[1] * preview_scale)
-                    display_height = int(frame.shape[0] * preview_scale)
+
+                    # Use fixed size for all window previews
+                    display_width = 640
+                    display_height = 480
                     display_frame = cv2.resize(frame, (display_width, display_height), interpolation=cv2.INTER_AREA)
-                    
+
                     # Show window
                     cv2.imshow(f"Camera {camera_name}", display_frame)
             

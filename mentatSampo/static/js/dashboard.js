@@ -560,7 +560,9 @@ DashboardClient = class extends originalDashboardClient {
 // Live resolution control
 async function updateResolution(setting, value) {
 	try {
-		console.log(`🔄 Updating resolution: ${setting} = ${value}`);
+		console.log(
+			`🔄 Updating resolution: ${setting} = ${value} (type: ${typeof value})`
+		);
 
 		// Update the input value if it's the processing scale
 		if (setting === 'PROCESSING_SCALE') {
@@ -571,11 +573,16 @@ async function updateResolution(setting, value) {
 		}
 
 		// Send update to server
+		const requestBody = { setting: setting, value: parseFloat(value) };
+		console.log(`📤 Sending request to server:`, requestBody);
+
 		const response = await fetch('/api/resolution/update', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ setting: setting, value: parseFloat(value) }),
+			body: JSON.stringify(requestBody),
 		});
+
+		console.log(`📥 Server response status: ${response.status}`);
 
 		if (response.ok) {
 			const data = await response.json();
@@ -589,7 +596,8 @@ async function updateResolution(setting, value) {
 				);
 			}
 		} else {
-			console.error('❌ Failed to update resolution');
+			const errorData = await response.json();
+			console.error('❌ Failed to update resolution:', errorData);
 		}
 	} catch (error) {
 		console.error('❌ Error updating resolution:', error);
