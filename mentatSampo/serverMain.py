@@ -270,9 +270,6 @@ class CentralWebSocketServer:
 
         # Use processing scale for web display
         processing_scale = get_processing_scale_from_config(self.config)
-        
-        # Debug: Print current processing scale
-        print(f"🔧 Web display using processing scale: {processing_scale}")
 
         # Ensure camera_id is string for consistency
         camera_id = str(camera_id)
@@ -283,11 +280,18 @@ class CentralWebSocketServer:
             if camera_id in self.camera_frames and (current_time - last_frame_time) >= frame_interval:
                 frame = self.camera_frames[camera_id].copy()
 
-                # Resize frame for web display using processing scale
-                frame = resize_frame_for_processing(frame, processing_scale)
+                # Check if any AI models are enabled
+                any_models_enabled = any(AI_MODELS[model]['enabled'] for model in AI_MODELS)
 
-                # Draw overlays on frame for web display
-                self.draw_overlays_on_frame(frame, camera_id)
+                if any_models_enabled:
+                    # Only resize and draw overlays if AI models are enabled
+                    frame = resize_frame_for_processing(frame, processing_scale)
+                    self.draw_overlays_on_frame(frame, camera_id)
+                else:
+                    # When no AI models are enabled, just resize for display (faster)
+                    # Use a fixed display scale for better performance
+                    display_scale = 0.5  # 50% for web display
+                    frame = resize_frame_for_processing(frame, display_scale)
 
                 # Encode frame as JPEG with lower quality for better performance
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -447,36 +451,41 @@ class CentralWebSocketServer:
         """Route frame to all enabled expert workers"""
         # Create callback to collect results
         results = {}
-        pending_workers = set(self.workers.keys())
+        enabled_workers = []
+        
+        # Only include workers for enabled models
+        for worker_name, worker in self.workers.items():
+            model_key = worker_name.lower()
+            if model_key in AI_MODELS and AI_MODELS[model_key]['enabled']:
+                enabled_workers.append(worker_name)
+        
+        pending_workers = set(enabled_workers)
         
         async def collect_result(cam_id, worker_name, result):
             """Callback to collect worker results"""
             results[worker_name] = result
             pending_workers.discard(worker_name)
             
-            # If all workers have responded, send combined result
+            # If all enabled workers have responded, send combined result
             if not pending_workers:
                 await self.send_combined_result(websocket, cam_id, results)
         
-        # Send frame to all workers with same processing scale
-        scale_factor = get_processing_scale_from_config(self.config)
-        processed_frame = resize_frame_for_processing(frame, scale_factor)
-        
-        # Debug: Print frame dimensions
-        original_shape = frame.shape
-        processed_shape = processed_frame.shape
-        print(f"🔧 Processing frame: {original_shape} -> {processed_shape} (scale: {scale_factor})")
-        
-        for worker_name, worker in self.workers.items():
-            await worker.add_job(camera_id, processed_frame, collect_result)
-        
-        # If no workers are available, send empty result
-        if not self.workers:
+        # If no enabled workers, send empty result immediately
+        if not enabled_workers:
             await websocket.send(json.dumps({
                 "camera_id": camera_id,
                 "results": {},
                 "timestamp": time.time()
             }))
+            return
+        
+        # Send frame to enabled workers with same processing scale
+        scale_factor = get_processing_scale_from_config(self.config)
+        processed_frame = resize_frame_for_processing(frame, scale_factor)
+        
+        for worker_name in enabled_workers:
+            worker = self.workers[worker_name]
+            await worker.add_job(camera_id, processed_frame, collect_result)
 
     async def route_frame_to_expert(self, camera_id, frame, expert_type, websocket):
         """Route frame to specific expert worker"""
