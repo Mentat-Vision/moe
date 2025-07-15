@@ -13,7 +13,10 @@ class YOLOWorker(BaseWorker):
     
     async def initialize_model(self):
         """Initialize the YOLO model"""
-        model_path = self.config.get("YOLO_MODEL_PATH", "modelsYolo/yolo11m.pt")
+        model_path = self.config.get("YOLO_MODEL_PATH")
+        
+        if not model_path:
+            raise Exception("YOLO_MODEL_PATH not configured in config.env")
         
         if not os.path.exists(model_path):
             print(f"❌ YOLO model not found at {model_path}")

@@ -11,7 +11,7 @@ import threading
 import os
 
 def load_config_and_cameras():
-    config = {"ENABLE_WINDOW_PREVIEW": True, "SERVER_IP": "10.8.162.58", "SERVER_PORT": "5000"}
+    config = {}
     cameras = {}
     if os.path.exists("config.env"):
         with open("config.env") as f:
@@ -20,13 +20,14 @@ def load_config_and_cameras():
                 if not line or line.startswith("#") or "=" not in line: continue
                 key, value = line.split("=", 1)
                 value = value.split("#")[0].strip()
-                if key == "ENABLE_WINDOW_PREVIEW":
-                    config[key] = value.lower() == "true"
-                elif key in ["SERVER_IP", "SERVER_PORT"]:
+                if key in ["SERVER_IP", "SERVER_PORT"]:
                     config[key] = value
                 elif key.startswith("CAMERA_"):
                     name = key[7:]
                     cameras[name] = int(value) if value.isdigit() else value
+    # Require SERVER_IP and SERVER_PORT to be set
+    if "SERVER_IP" not in config or "SERVER_PORT" not in config:
+        raise ValueError("SERVER_IP and SERVER_PORT must be set in config.env. No defaults allowed.")
     if not cameras:
         cameras = {"webcam_0": 0, "webcam_1": 1}
     return config, cameras
@@ -37,7 +38,6 @@ class MultiCameraClient:
         if not self.cameras: raise ValueError("No cameras enabled. Check config.env file.")
         self.websockets, self.connected = {}, {}
         self.yolo_data, self.blip_data = {}, {}
-        self.colors = [(0,255,0),(255,0,0),(0,0,255),(255,255,0),(255,0,255),(0,255,255),(128,0,128),(255,165,0)]
         self.last_yolo_time, self.last_blip_time = {}, {}
         self.yolo_interval, self.blip_interval = 0.2, 3.0
         self.camera_status = {}
@@ -47,7 +47,7 @@ class MultiCameraClient:
             self.connected[cam] = False
             self.last_yolo_time[cam] = self.last_blip_time[cam] = 0
             self.camera_status[cam] = {"working": True, "failures": 0}
-        print(f"🖥️ Window preview: {'ENABLED' if self.config['ENABLE_WINDOW_PREVIEW'] else 'DISABLED'}")
+        print("🖥️ Running in headless mode - view results at web dashboard")
 
     async def connect_to_server(self, camera_name):
         try:
@@ -111,65 +111,6 @@ class MultiCameraClient:
         except Exception as e:
             print(f"❌ {camera_name} {expert_type} error: {e}")
 
-    def draw_yolo_detections(self, frame, camera_name):
-        detections = self.yolo_data[camera_name]["detections"]
-        h, w = frame.shape[:2]
-        sx, sy = w / 640.0, h / 480.0
-        for i, d in enumerate(detections):
-            x1, y1, x2, y2 = [int(d["bbox"][j] * (sx if j%2==0 else sy)) for j in range(4)]
-            color = self.colors[i % len(self.colors)]
-            label = f"{d['class']} {d['confidence']:.2f}"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.rectangle(frame, (x1, y1-th-10), (x1+tw+10, y1), color, -1)
-            cv2.putText(frame, label, (x1+5, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-
-    def draw_person_ids(self, frame, camera_name):
-        persons = self.yolo_data[camera_name]["person_detections"]
-        h, w = frame.shape[:2]
-        sx, sy = w / 640.0, h / 480.0
-        for p in persons:
-            if "id" in p:
-                x1, y1, x2, y2 = [int(p["bbox"][j] * (sx if j%2==0 else sy)) for j in range(4)]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0,0,255), 2)
-                cv2.putText(frame, f"ID: {p['id']}", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
-
-    def draw_blip_caption(self, frame, camera_name):
-        caption = self.blip_data[camera_name]["caption"]
-        if caption:
-            words, lines, cur = caption.split(), [], ""
-            for word in words:
-                if len(cur + " " + word) < 40:
-                    cur += (" " + word) if cur else word
-                else:
-                    lines.append(cur)
-                    cur = word
-            if cur: lines.append(cur)
-            h = frame.shape[0]
-            y = h - 80
-            for i, line in enumerate(lines[:3]):
-                (tw, th), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                cv2.rectangle(frame, (10, y-th-5), (10+tw+10, y+5), (0,0,0), -1)
-                cv2.putText(frame, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2, cv2.LINE_AA)
-                y += 25
-
-    def draw_status_info(self, frame, camera_name):
-        w = frame.shape[1]
-        x = w - 200
-        cv2.putText(frame, f"Camera: {camera_name}", (x, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-        status = "Connected" if self.connected[camera_name] else "Disconnected"
-        color = (0,255,0) if self.connected[camera_name] else (0,0,255)
-        cv2.putText(frame, f"Server: {status}", (x, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        y = 80
-        if self.yolo_data[camera_name]["fps"] > 0:
-            cv2.putText(frame, f"YOLO FPS: {self.yolo_data[camera_name]['fps']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-            y += 25
-        if self.blip_data[camera_name]["fps"] > 0:
-            cv2.putText(frame, f"BLIP FPS: {self.blip_data[camera_name]['fps']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-            y += 25
-        if self.yolo_data[camera_name]["person_count"] > 0:
-            cv2.putText(frame, f"Persons: {self.yolo_data[camera_name]['person_count']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-
     async def run_async(self):
         for cam in self.cameras:
             await self.connect_to_server(cam)
@@ -177,8 +118,8 @@ class MultiCameraClient:
         if not caps:
             print("❌ No cameras could be opened. Check your configuration.")
             return
-        print("🎥 Multi-Camera Client running with central server architecture.")
-        print("Press 'q' to quit." if self.config["ENABLE_WINDOW_PREVIEW"] else "Running in headless mode. Ctrl+C to quit.")
+        print("🎥 Multi-Camera Client running in headless mode.")
+        print("📊 View results at web dashboard. Press Ctrl+C to quit.")
         while True:
             now = time.time()
             for cam in list(caps):
@@ -200,19 +141,8 @@ class MultiCameraClient:
                 if now - self.last_blip_time[cam] >= self.blip_interval:
                     await self.send_frame_to_expert(cam, frame, "BLIP")
                     self.last_blip_time[cam] = now
-                if self.config["ENABLE_WINDOW_PREVIEW"]:
-                    self.draw_yolo_detections(frame, cam)
-                    self.draw_person_ids(frame, cam)
-                    self.draw_blip_caption(frame, cam)
-                    self.draw_status_info(frame, cam)
-                    display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-                    cv2.imshow(f"Camera {cam}", display_frame)
-            if self.config["ENABLE_WINDOW_PREVIEW"]:
-                if cv2.waitKey(1) & 0xFF == ord('q'): break
-            else:
-                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01)
         for cap in caps.values(): cap.release()
-        if self.config["ENABLE_WINDOW_PREVIEW"]: cv2.destroyAllWindows()
         for ws in self.websockets.values(): await ws.close()
 
 def main():

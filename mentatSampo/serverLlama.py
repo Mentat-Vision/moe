@@ -24,7 +24,7 @@ def load_config():
 # Load configuration
 config = load_config()
 
-MODEL_PATH = "./models/llama3/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
+MODEL_PATH = config.get("LLAMA_MODEL_PATH", "./models/llama3/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf")
 
 llm = Llama(
     model_path=MODEL_PATH,
