@@ -10,475 +10,217 @@ import time
 import threading
 import os
 
-def load_config():
-    """Load configuration from config.env"""
-    config = {
-        "ENABLE_WINDOW_PREVIEW": True,  # Default to True
-        "SERVER_IP": "10.8.162.58",
-        "SERVER_PORT": "5000"
-    }
-    
+def load_config_and_cameras():
+    config = {"ENABLE_WINDOW_PREVIEW": True, "SERVER_IP": "10.8.162.58", "SERVER_PORT": "5000"}
+    cameras = {}
     if os.path.exists("config.env"):
-        with open("config.env", "r") as f:
+        with open("config.env") as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("#") or not line or "=" not in line:
-                    continue
-                
-                try:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    # Remove inline comments (everything after #)
-                    if "#" in value:
-                        value = value.split("#")[0].strip()
-                    
-                    if key == "ENABLE_WINDOW_PREVIEW":
-                        config[key] = value.lower() == "true"
-                    elif key in ["SERVER_IP", "SERVER_PORT"]:
-                        config[key] = value
-                        
-                except ValueError:
-                    print(f"❌ Invalid configuration line: {line}")
-                    continue
-    
-    return config
-
-def get_enabled_cameras():
-    """Get list of enabled cameras from config.env"""
-    cameras = {}
-    
-    if not os.path.exists("config.env"):
-        # Default: enable camera 0 and 1
-        return {"webcam_0": 0, "webcam_1": 1}
-    
-    with open("config.env", "r") as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if line.startswith("#") or not line or "=" not in line:
-                continue
-            
-            # Parse camera configuration lines
-            if line.startswith("CAMERA_"):
-                try:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    # Remove inline comments (everything after #)
-                    if "#" in value:
-                        value = value.split("#")[0].strip()
-                    
-                    # Extract camera name (remove CAMERA_ prefix)
-                    camera_name = key[7:]  # Remove "CAMERA_" prefix
-                    
-                    # Determine if it's a webcam index or RTSP URL
-                    if value.startswith("rtsp://"):
-                        cameras[camera_name] = value
-                    else:
-                        # Try to parse as integer for webcam index
-                        try:
-                            cameras[camera_name] = int(value)
-                        except ValueError:
-                            print(f"❌ Invalid camera value for {key}: {value}")
-                            continue
-                            
-                except ValueError:
-                    print(f"❌ Invalid camera configuration line: {line}")
-                    continue
-    
+                if not line or line.startswith("#") or "=" not in line: continue
+                key, value = line.split("=", 1)
+                value = value.split("#")[0].strip()
+                if key == "ENABLE_WINDOW_PREVIEW":
+                    config[key] = value.lower() == "true"
+                elif key in ["SERVER_IP", "SERVER_PORT"]:
+                    config[key] = value
+                elif key.startswith("CAMERA_"):
+                    name = key[7:]
+                    cameras[name] = int(value) if value.isdigit() else value
     if not cameras:
-        print("ℹ️ No cameras enabled in config.env. Using default webcams 0 and 1")
-        return {"webcam_0": 0, "webcam_1": 1}
-    
-    print(f"📹 Enabled cameras: {list(cameras.keys())}")
-    return cameras
+        cameras = {"webcam_0": 0, "webcam_1": 1}
+    return config, cameras
 
 class MultiCameraClient:
     def __init__(self):
-        # Load configuration
-        self.config = load_config()
-        self.cameras = get_enabled_cameras()
-        
-        if not self.cameras:
-            raise ValueError("No cameras enabled. Check config.env file.")
-        
-        # Single WebSocket connection per camera
-        self.websockets = {}
-        self.connected = {}
-        
-        # Data storage for each camera
-        self.yolo_data = {}
-        self.blip_data = {}
-        
-        # Color palette for YOLO detections
-        self.colors = [
-            (0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0),
-            (255, 0, 255), (0, 255, 255), (128, 0, 128), (255, 165, 0)
-        ]
-        
-        # Performance tracking
-        self.last_yolo_time = {}
-        self.last_blip_time = {}
-        self.yolo_interval = 0.2  # 200ms between YOLO detections (5 FPS)
-        self.blip_interval = 3.0  # 3 seconds between BLIP captions
-        
-        # Camera status tracking
+        self.config, self.cameras = load_config_and_cameras()
+        if not self.cameras: raise ValueError("No cameras enabled. Check config.env file.")
+        self.websockets, self.connected = {}, {}
+        self.yolo_data, self.blip_data = {}, {}
+        self.colors = [(0,255,0),(255,0,0),(0,0,255),(255,255,0),(255,0,255),(0,255,255),(128,0,128),(255,165,0)]
+        self.last_yolo_time, self.last_blip_time = {}, {}
+        self.yolo_interval, self.blip_interval = 0.2, 3.0
         self.camera_status = {}
-        
-        # Initialize data structures for each camera
-        for camera_name in self.cameras:
-            self.yolo_data[camera_name] = {
-                "detections": [],
-                "person_detections": [],
-                "person_count": 0,
-                "fps": 0
-            }
-            self.blip_data[camera_name] = {
-                "caption": "",
-                "fps": 0
-            }
-            self.connected[camera_name] = False
-            self.last_yolo_time[camera_name] = 0
-            self.last_blip_time[camera_name] = 0
-            self.camera_status[camera_name] = {"working": True, "failures": 0}
-        
-        # Print window preview status
-        if self.config["ENABLE_WINDOW_PREVIEW"]:
-            print("🖥️ Window preview: ENABLED")
-        else:
-            print("🖥️ Window preview: DISABLED (web streaming still active)")
-    
+        for cam in self.cameras:
+            self.yolo_data[cam] = {"detections": [], "person_detections": [], "person_count": 0, "fps": 0}
+            self.blip_data[cam] = {"caption": "", "fps": 0}
+            self.connected[cam] = False
+            self.last_yolo_time[cam] = self.last_blip_time[cam] = 0
+            self.camera_status[cam] = {"working": True, "failures": 0}
+        print(f"🖥️ Window preview: {'ENABLED' if self.config['ENABLE_WINDOW_PREVIEW'] else 'DISABLED'}")
+
     async def connect_to_server(self, camera_name):
-        """Connect to central WebSocket server for specific camera"""
         try:
-            # Use config values
-            server_ip = self.config["SERVER_IP"]
-            server_port = self.config["SERVER_PORT"]
-            
-            server_url = f"ws://{server_ip}:{server_port}"
-            self.websockets[camera_name] = await websockets.connect(server_url)
+            url = f"ws://{self.config['SERVER_IP']}:{self.config['SERVER_PORT']}"
+            self.websockets[camera_name] = await websockets.connect(url)
             self.connected[camera_name] = True
-            print(f"🔌 Camera {camera_name} connected to server: {server_url}")
+            print(f"🔌 Camera {camera_name} connected to server: {url}")
             return True
         except Exception as e:
-            print(f"❌ Camera {camera_name} failed to connect to server: {e}")
+            print(f"❌ Camera {camera_name} failed to connect: {e}")
             return False
-    
+
     def open_camera(self, camera_name, camera_source):
-        """Open camera (webcam or RTSP stream)"""
-        try:
-            cap = cv2.VideoCapture(camera_source)
-            
-            # Set properties for better performance
-            if isinstance(camera_source, int):
-                # Webcam settings
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_FPS, 30)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            else:
-                # RTSP settings - keep original resolution but optimize buffering
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_FPS, 25)
-                # Don't force resolution for RTSP - let it use native resolution
-            
-            if not cap.isOpened():
-                print(f"❌ Failed to open camera {camera_name} ({camera_source})")
-                return None
-            
-            # Get actual resolution
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print(f"✅ Camera {camera_name} opened successfully ({width}x{height})")
-            return cap
-            
-        except Exception as e:
-            print(f"❌ Error opening camera {camera_name}: {e}")
+        cap = cv2.VideoCapture(camera_source)
+        if isinstance(camera_source, int):
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        else:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            cap.set(cv2.CAP_PROP_FPS, 25)
+        if not cap.isOpened():
+            print(f"❌ Failed to open camera {camera_name} ({camera_source})")
             return None
-    
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"✅ Camera {camera_name} opened ({w}x{h})")
+        return cap
+
     async def send_frame_to_expert(self, camera_name, frame, expert_type):
-        """Send frame to specific expert through central server"""
         if not self.connected[camera_name] or camera_name not in self.websockets:
             return
-        
         try:
-            # Resize frame for processing
             frame_resized = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-            
-            # Encode frame as base64
             _, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
             frame_base64 = base64.b64encode(buffer).decode('utf-8')
-            
-            # Create message with expert type and camera info
-            message = {
-                "expert": expert_type,
-                "camera_id": camera_name,  # Use camera name as ID
-                "frame": frame_base64
-            }
-            
-            # Send message
+            message = {"expert": expert_type, "camera_id": camera_name, "frame": frame_base64}
             await self.websockets[camera_name].send(json.dumps(message))
-            
-            # Wait for response
             timeout = 5.0 if expert_type == "BLIP" else 2.0
             response = await asyncio.wait_for(self.websockets[camera_name].recv(), timeout=timeout)
             results = json.loads(response)
-            
-            # Handle response based on expert type
             if expert_type == "YOLO" and "error" not in results:
-                self.yolo_data[camera_name]["detections"] = results.get("detections", [])
-                self.yolo_data[camera_name]["person_detections"] = results.get("person_detections", [])
-                self.yolo_data[camera_name]["person_count"] = results.get("person_count", 0)
-                self.yolo_data[camera_name]["fps"] = results.get("fps", 0)
-                
-                if self.yolo_data[camera_name]["detections"]:
-                    labels = [f"{d['class']} ({d['confidence']:.2f})" for d in self.yolo_data[camera_name]["detections"]]
-                    timestamp = datetime.now().strftime("%H:%M:%S")
-                    print(f"🎯 Camera {camera_name} - {timestamp} - {', '.join(labels)} (FPS: {self.yolo_data[camera_name]['fps']}, Persons: {self.yolo_data[camera_name]['person_count']})")
-                    
+                yd = self.yolo_data[camera_name]
+                yd.update({k: results.get(k, yd[k]) for k in ["detections", "person_detections", "person_count", "fps"]})
+                if yd["detections"]:
+                    labels = [f"{d['class']} ({d['confidence']:.2f})" for d in yd["detections"]]
+                    print(f"🎯 {camera_name} - {datetime.now().strftime('%H:%M:%S')} - {', '.join(labels)} (FPS: {yd['fps']}, Persons: {yd['person_count']})")
             elif expert_type == "BLIP" and "error" not in results:
-                self.blip_data[camera_name]["caption"] = results.get("caption", "")
-                self.blip_data[camera_name]["fps"] = results.get("fps", 0)
-                
-                if self.blip_data[camera_name]["caption"]:
-                    timestamp = datetime.now().strftime("%H:%M:%S")
-                    print(f"📝 Camera {camera_name} - {timestamp} - {self.blip_data[camera_name]['caption']} (FPS: {self.blip_data[camera_name]['fps']})")
-                    
+                bd = self.blip_data[camera_name]
+                bd.update({k: results.get(k, bd[k]) for k in ["caption", "fps"]})
+                if bd["caption"]:
+                    print(f"📝 {camera_name} - {datetime.now().strftime('%H:%M:%S')} - {bd['caption']} (FPS: {bd['fps']})")
             elif "error" in results:
-                print(f"❌ Camera {camera_name} {expert_type} error: {results['error']}")
-                    
+                print(f"❌ {camera_name} {expert_type} error: {results['error']}")
         except asyncio.TimeoutError:
-            print(f"⏰ Camera {camera_name} {expert_type} timeout")
+            print(f"⏰ {camera_name} {expert_type} timeout")
         except websockets.exceptions.ConnectionClosed:
-            print(f"🔌 Camera {camera_name} connection closed, attempting to reconnect...")
+            print(f"🔌 {camera_name} connection closed, reconnecting...")
             self.connected[camera_name] = False
-            # Try to reconnect
             await self.connect_to_server(camera_name)
         except Exception as e:
-            print(f"❌ Camera {camera_name} {expert_type} error: {e}")
-    
+            print(f"❌ {camera_name} {expert_type} error: {e}")
+
     def draw_yolo_detections(self, frame, camera_name):
-        """Draw YOLO detections on frame"""
         detections = self.yolo_data[camera_name]["detections"]
-        
-        # Get scaling factors between processing size (640x480) and display size
-        frame_height, frame_width = frame.shape[:2]
-        scale_x = frame_width / 640.0
-        scale_y = frame_height / 480.0
-        
-        for i, detection in enumerate(detections):
-            bbox = detection["bbox"]
-            class_name = detection["class"]
-            confidence = detection["confidence"]
-            
+        h, w = frame.shape[:2]
+        sx, sy = w / 640.0, h / 480.0
+        for i, d in enumerate(detections):
+            x1, y1, x2, y2 = [int(d["bbox"][j] * (sx if j%2==0 else sy)) for j in range(4)]
             color = self.colors[i % len(self.colors)]
-            
-            # Scale bounding box coordinates to match display frame size
-            x1 = int(bbox[0] * scale_x)
-            y1 = int(bbox[1] * scale_y)
-            x2 = int(bbox[2] * scale_x)
-            y2 = int(bbox[3] * scale_y)
-            
+            label = f"{d['class']} {d['confidence']:.2f}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            
-            label = f"{class_name} {confidence:.2f}"
-            (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(frame, (x1, y1 - text_height - 10), 
-                         (x1 + text_width + 10, y1), color, -1)
-            cv2.putText(frame, label, (x1 + 5, y1 - 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    
+            cv2.rectangle(frame, (x1, y1-th-10), (x1+tw+10, y1), color, -1)
+            cv2.putText(frame, label, (x1+5, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+
     def draw_person_ids(self, frame, camera_name):
-        """Draw person IDs on bounding boxes"""
-        person_detections = self.yolo_data[camera_name]["person_detections"]
-        
-        # Get scaling factors between processing size (640x480) and display size
-        frame_height, frame_width = frame.shape[:2]
-        scale_x = frame_width / 640.0
-        scale_y = frame_height / 480.0
-        
-        for person in person_detections:
-            bbox = person["bbox"]
-            
-            # Only draw ID if it exists in the detection
-            if "id" in person:
-                person_id = person["id"]
-                
-                # Scale bounding box coordinates to match display frame size
-                x1 = int(bbox[0] * scale_x)
-                y1 = int(bbox[1] * scale_y)
-                x2 = int(bbox[2] * scale_x)
-                y2 = int(bbox[3] * scale_y)
-                
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                
-                id_text = f"ID: {person_id}"
-                cv2.putText(frame, id_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
-                           0.7, (255, 255, 255), 2, cv2.LINE_AA)
-    
+        persons = self.yolo_data[camera_name]["person_detections"]
+        h, w = frame.shape[:2]
+        sx, sy = w / 640.0, h / 480.0
+        for p in persons:
+            if "id" in p:
+                x1, y1, x2, y2 = [int(p["bbox"][j] * (sx if j%2==0 else sy)) for j in range(4)]
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0,0,255), 2)
+                cv2.putText(frame, f"ID: {p['id']}", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
+
     def draw_blip_caption(self, frame, camera_name):
-        """Draw BLIP caption on frame"""
         caption = self.blip_data[camera_name]["caption"]
         if caption:
-            words = caption.split()
-            lines = []
-            current_line = ""
+            words, lines, cur = caption.split(), [], ""
             for word in words:
-                if len(current_line + " " + word) < 40:
-                    current_line += (" " + word) if current_line else word
+                if len(cur + " " + word) < 40:
+                    cur += (" " + word) if cur else word
                 else:
-                    lines.append(current_line)
-                    current_line = word
-            if current_line:
-                lines.append(current_line)
-            
-            # Position caption at bottom of frame to avoid overlap
-            frame_height = frame.shape[0]
-            y_position = frame_height - 80  # Start 80px from bottom
-            
+                    lines.append(cur)
+                    cur = word
+            if cur: lines.append(cur)
+            h = frame.shape[0]
+            y = h - 80
             for i, line in enumerate(lines[:3]):
-                (text_width, text_height), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                cv2.rectangle(frame, (10, y_position - text_height - 5), 
-                            (10 + text_width + 10, y_position + 5), (0, 0, 0), -1)
-                cv2.putText(frame, line, (10, y_position), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6, (0, 255, 255), 2, cv2.LINE_AA)
-                y_position += 25
-    
+                (tw, th), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(frame, (10, y-th-5), (10+tw+10, y+5), (0,0,0), -1)
+                cv2.putText(frame, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2, cv2.LINE_AA)
+                y += 25
+
     def draw_status_info(self, frame, camera_name):
-        """Draw status information on frame"""
-        # Position status info on the right side to avoid overlap
-        frame_width = frame.shape[1]
-        x_position = frame_width - 200  # 200px from right edge
-        
-        # Camera info
-        cv2.putText(frame, f"Camera: {camera_name}", (x_position, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.6, (255, 255, 255), 2)
-        
-        # Connection status
-        status_text = "Connected" if self.connected[camera_name] else "Disconnected"
-        status_color = (0, 255, 0) if self.connected[camera_name] else (0, 0, 255)
-        cv2.putText(frame, f"Server: {status_text}", (x_position, 55), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.6, status_color, 2)
-        
-        # FPS info
-        y_pos = 80
+        w = frame.shape[1]
+        x = w - 200
+        cv2.putText(frame, f"Camera: {camera_name}", (x, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+        status = "Connected" if self.connected[camera_name] else "Disconnected"
+        color = (0,255,0) if self.connected[camera_name] else (0,0,255)
+        cv2.putText(frame, f"Server: {status}", (x, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        y = 80
         if self.yolo_data[camera_name]["fps"] > 0:
-            cv2.putText(frame, f"YOLO FPS: {self.yolo_data[camera_name]['fps']}", (x_position, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            y_pos += 25
+            cv2.putText(frame, f"YOLO FPS: {self.yolo_data[camera_name]['fps']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+            y += 25
         if self.blip_data[camera_name]["fps"] > 0:
-            cv2.putText(frame, f"BLIP FPS: {self.blip_data[camera_name]['fps']}", (x_position, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            y_pos += 25
-        
-        # Person count
+            cv2.putText(frame, f"BLIP FPS: {self.blip_data[camera_name]['fps']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+            y += 25
         if self.yolo_data[camera_name]["person_count"] > 0:
-            cv2.putText(frame, f"Persons: {self.yolo_data[camera_name]['person_count']}", (x_position, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    
+            cv2.putText(frame, f"Persons: {self.yolo_data[camera_name]['person_count']}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+
     async def run_async(self):
-        """Main async loop"""
-        # Connect to server for each camera
-        for camera_name in self.cameras:
-            await self.connect_to_server(camera_name)
-        
-        # Initialize video captures
-        caps = {}
-        for camera_name, camera_source in self.cameras.items():
-            cap = self.open_camera(camera_name, camera_source)
-            if cap is None:
-                self.camera_status[camera_name]["working"] = False
-                continue
-            
-            caps[camera_name] = cap
-        
+        for cam in self.cameras:
+            await self.connect_to_server(cam)
+        caps = {cam: self.open_camera(cam, src) for cam, src in self.cameras.items() if self.open_camera(cam, src)}
         if not caps:
             print("❌ No cameras could be opened. Check your configuration.")
             return
-        
         print("🎥 Multi-Camera Client running with central server architecture.")
-        if self.config["ENABLE_WINDOW_PREVIEW"]:
-            print("Press 'q' to quit.")
-        else:
-            print("Running in headless mode (no window preview).")
-            print("Press Ctrl+C to quit.")
-        
+        print("Press 'q' to quit." if self.config["ENABLE_WINDOW_PREVIEW"] else "Running in headless mode. Ctrl+C to quit.")
         while True:
-            current_time = time.time()
-            
-            # Process each camera
-            for camera_name in self.cameras:
-                if camera_name not in caps or not self.camera_status[camera_name]["working"]:
-                    continue
-                    
-                cap = caps[camera_name]
-                
+            now = time.time()
+            for cam in list(caps):
+                if not self.camera_status[cam]["working"]: continue
+                cap = caps[cam]
                 ret, frame = cap.read()
                 if not ret:
-                    self.camera_status[camera_name]["failures"] += 1
-                    if self.camera_status[camera_name]["failures"] > 10:
-                        print(f"❌ Camera {camera_name} failed too many times, disabling")
-                        self.camera_status[camera_name]["working"] = False
+                    self.camera_status[cam]["failures"] += 1
+                    if self.camera_status[cam]["failures"] > 10:
+                        print(f"❌ Camera {cam} failed too many times, disabling")
+                        self.camera_status[cam]["working"] = False
                         cap.release()
-                        del caps[camera_name]
+                        del caps[cam]
                     continue
-                
-                # Reset failure count on successful read
-                self.camera_status[camera_name]["failures"] = 0
-                
-                # Send frames at controlled rates
-                if current_time - self.last_yolo_time[camera_name] >= self.yolo_interval:
-                    await self.send_frame_to_expert(camera_name, frame, "YOLO")
-                    self.last_yolo_time[camera_name] = current_time
-                
-                if current_time - self.last_blip_time[camera_name] >= self.blip_interval:
-                    await self.send_frame_to_expert(camera_name, frame, "BLIP")
-                    self.last_blip_time[camera_name] = current_time
-                
-                # Only draw overlays and show windows if preview is enabled
+                self.camera_status[cam]["failures"] = 0
+                if now - self.last_yolo_time[cam] >= self.yolo_interval:
+                    await self.send_frame_to_expert(cam, frame, "YOLO")
+                    self.last_yolo_time[cam] = now
+                if now - self.last_blip_time[cam] >= self.blip_interval:
+                    await self.send_frame_to_expert(cam, frame, "BLIP")
+                    self.last_blip_time[cam] = now
                 if self.config["ENABLE_WINDOW_PREVIEW"]:
-                    # Draw overlays
-                    self.draw_yolo_detections(frame, camera_name)
-                    self.draw_person_ids(frame, camera_name)
-                    self.draw_blip_caption(frame, camera_name)
-                    self.draw_status_info(frame, camera_name)
-                    
-                    # Resize frame for display to ensure consistent preview window size
-                    # All cameras will display at 640x480 regardless of source resolution
+                    self.draw_yolo_detections(frame, cam)
+                    self.draw_person_ids(frame, cam)
+                    self.draw_blip_caption(frame, cam)
+                    self.draw_status_info(frame, cam)
                     display_frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
-                    
-                    # Show window
-                    cv2.imshow(f"Camera {camera_name}", display_frame)
-            
-            # Handle quit key only if window preview is enabled
+                    cv2.imshow(f"Camera {cam}", display_frame)
             if self.config["ENABLE_WINDOW_PREVIEW"]:
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+                if cv2.waitKey(1) & 0xFF == ord('q'): break
             else:
-                # In headless mode, just sleep a bit to prevent busy waiting
                 await asyncio.sleep(0.01)
-        
-        # Cleanup
-        for cap in caps.values():
-            cap.release()
-        
-        if self.config["ENABLE_WINDOW_PREVIEW"]:
-            cv2.destroyAllWindows()
-        
-        # Close WebSocket connections
-        for websocket in self.websockets.values():
-            await websocket.close()
+        for cap in caps.values(): cap.release()
+        if self.config["ENABLE_WINDOW_PREVIEW"]: cv2.destroyAllWindows()
+        for ws in self.websockets.values(): await ws.close()
 
 def main():
     try:
         client = MultiCameraClient()
         asyncio.run(client.run_async())
     except ValueError as e:
-        print(f"❌ {e}")
-        print("💡 To enable cameras, edit config.env and uncomment the cameras you want to use.")
+        print(f"❌ {e}\n💡 To enable cameras, edit config.env and uncomment the cameras you want to use.")
     except KeyboardInterrupt:
         print("\n🛑 Client stopped by user (Ctrl+C)")
 

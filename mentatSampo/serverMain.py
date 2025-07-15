@@ -11,21 +11,57 @@ from flask import Flask, render_template, jsonify, Response, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import threading
 
-def load_config():
-    """Load configuration from config.env"""
-    config = {}
-    
+def load_config_and_cameras():
+    config = {"ENABLE_WINDOW_PREVIEW": True, "SERVER_IP": "10.8.162.58", "SERVER_PORT": "5000"}
+    cameras = {}
     if os.path.exists("config.env"):
-        with open("config.env", "r") as f:
+        with open("config.env") as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("#") or not line:
-                    continue
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    config[key.strip()] = value.strip()
-    
-    return config
+                if not line or line.startswith("#") or "=" not in line: continue
+                key, value = line.split("=", 1)
+                value = value.split("#")[0].strip()
+                if key == "ENABLE_WINDOW_PREVIEW":
+                    config[key] = value.lower() == "true"
+                elif key in ["SERVER_IP", "SERVER_PORT"]:
+                    config[key] = value
+                elif key.startswith("CAMERA_"):
+                    name = key[7:]
+                    cameras[name] = int(value) if value.isdigit() else value
+    if not cameras:
+        cameras = {"webcam_0": 0, "webcam_1": 1}
+    return config, cameras
+
+class MultiCameraClient:
+    def __init__(self):
+        self.config, self.cameras = load_config_and_cameras()
+        if not self.cameras: raise ValueError("No cameras enabled. Check config.env file.")
+        self.websockets, self.connected = {}, {}
+        self.yolo_data, self.blip_data = {}, {}
+        self.colors = [(0,255,0),(255,0,0),(0,0,255),(255,255,0),(255,0,255),(0,255,255),(128,0,128),(255,165,0)]
+        self.last_yolo_time, self.last_blip_time = {}, {}
+        self.yolo_interval, self.blip_interval = 0.2, 3.0
+        self.camera_status = {}
+        for cam in self.cameras:
+            self.yolo_data[cam] = {"detections": [], "person_detections": [], "person_count": 0, "fps": 0}
+            self.blip_data[cam] = {"caption": "", "fps": 0}
+            self.connected[cam] = False
+            self.last_yolo_time[cam] = self.last_blip_time[cam] = 0
+            self.camera_status[cam] = {"working": True, "failures": 0}
+        print(f"🖥️ Window preview: {'ENABLED' if self.config['ENABLE_WINDOW_PREVIEW'] else 'DISABLED'}")
+
+    def draw_yolo_detections(self, frame, camera_name):
+        detections = self.yolo_data[camera_name]["detections"]
+        h, w = frame.shape[:2]
+        sx, sy = w / 640.0, h / 480.0
+        for i, d in enumerate(detections):
+            x1, y1, x2, y2 = [int(d["bbox"][j] * (sx if j%2==0 else sy)) for j in range(4)]
+            color = self.colors[i % len(self.colors)]
+            label = f"{d['class']} {d['confidence']:.2f}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(frame, (x1, y1-th-10), (x1+tw+10, y1), color, -1)
+            cv2.putText(frame, label, (x1+5, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
 
 # Global AI model controls (affects all cameras)
 AI_MODELS = {
@@ -38,7 +74,7 @@ class CentralWebSocketServer:
     """Central WebSocket server that routes frames to expert workers"""
     
     def __init__(self):
-        self.config = load_config()
+        self.config = load_config_and_cameras()[0] # Load config only
         self.connected_clients = set()
         
         # Initialize expert workers
