@@ -1,235 +1,100 @@
+# server.py
 from flask import Flask, render_template, request, Response, jsonify
-from flask_socketio import SocketIO, emit, disconnect
-import cv2
-import numpy as np
+from flask_socketio import SocketIO, emit
 import threading
 import time
-import io
-from PIL import Image
-import base64
 from collections import deque
-import json
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'mentat-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 class StreamManager:
     def __init__(self):
-        self.camera_frames = {}
-        self.camera_locks = {}
-        self.camera_status = {}
-        self.camera_fps = {}
-        self.frame_timestamps = {}
-        self.client_cameras = {}  # Track which client is sending which camera
-    
-    def update_frame(self, camera_id: str, frame_data: bytes, client_id: str = None):
-        """Update frame for a specific camera"""
-        if camera_id not in self.camera_locks:
-            self.camera_locks[camera_id] = threading.Lock()
-        
-        with self.camera_locks[camera_id]:
+        self.frames = {}  # Store JPG bytes directly
+        self.locks = {}
+        self.fps = {}
+        self.timestamps = {}
+        self.status = {}
+        self.clients = {}
+
+    def update(self, cam_id, jpg_data, client_id):
+        if cam_id not in self.locks:
+            self.locks[cam_id] = threading.Lock()
+        with self.locks[cam_id]:
             try:
-                # Convert bytes to numpy array
-                nparr = np.frombuffer(frame_data, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                self.camera_frames[camera_id] = frame
-                
-                # Track which client is sending this camera
-                if client_id:
-                    self.client_cameras[camera_id] = client_id
-                
-                # Update FPS calculation
-                current_time = time.time()
-                if camera_id not in self.frame_timestamps:
-                    self.frame_timestamps[camera_id] = deque(maxlen=30)  # Keep last 30 timestamps
-                
-                self.frame_timestamps[camera_id].append(current_time)
-                
-                # Calculate FPS based on last 30 frames
-                if len(self.frame_timestamps[camera_id]) > 1:
-                    time_diff = self.frame_timestamps[camera_id][-1] - self.frame_timestamps[camera_id][0]
-                    if time_diff > 0:
-                        fps = (len(self.frame_timestamps[camera_id]) - 1) / time_diff
-                        self.camera_fps[camera_id] = round(fps, 1)
-                
-                self.camera_status[camera_id] = {
-                    'last_update': current_time,
-                    'status': 'active',
-                    'fps': self.camera_fps.get(camera_id, 0),
-                    'client_id': client_id
-                }
+                self.frames[cam_id] = jpg_data  # Store raw JPG bytes
+                self.clients[cam_id] = client_id
+                now = time.time()
+                if cam_id not in self.timestamps:
+                    self.timestamps[cam_id] = deque(maxlen=60)  # Increased for smoother FPS
+                self.timestamps[cam_id].append(now)
+                if len(self.timestamps[cam_id]) > 1:
+                    dt = self.timestamps[cam_id][-1] - self.timestamps[cam_id][0]
+                    self.fps[cam_id] = round((len(self.timestamps[cam_id]) - 1) / dt, 1) if dt > 0 else 0
+                self.status[cam_id] = {'status': 'active', 'last_update': now, 'fps': self.fps.get(cam_id, 0)}
             except Exception as e:
-                print(f"Error processing frame for {camera_id}: {e}")
-    
-    def get_frame(self, camera_id: str):
-        """Get the latest frame for a camera"""
-        if camera_id in self.camera_locks:
-            with self.camera_locks[camera_id]:
-                return self.camera_frames.get(camera_id)
-        return None
-    
-    def get_camera_status(self):
-        """Get status of all cameras"""
-        current_time = time.time()
-        status = {}
-        
-        for camera_id in self.camera_frames.keys():
-            if camera_id in self.camera_status:
-                last_update = self.camera_status[camera_id]['last_update']
-                # Mark as inactive if no update in last 5 seconds
-                if current_time - last_update > 5:
-                    self.camera_status[camera_id]['status'] = 'inactive'
-                    self.camera_status[camera_id]['fps'] = 0
-                status[camera_id] = self.camera_status[camera_id]
-        
-        return status
-    
-    def remove_client_cameras(self, client_id: str):
-        """Remove all cameras associated with a disconnected client"""
-        cameras_to_remove = []
-        for camera_id, client in self.client_cameras.items():
-            if client == client_id:
-                cameras_to_remove.append(camera_id)
-        
-        for camera_id in cameras_to_remove:
-            if camera_id in self.camera_frames:
-                del self.camera_frames[camera_id]
-            if camera_id in self.camera_status:
-                del self.camera_status[camera_id]
-            if camera_id in self.camera_fps:
-                del self.camera_fps[camera_id]
-            if camera_id in self.frame_timestamps:
-                del self.frame_timestamps[camera_id]
-            if camera_id in self.client_cameras:
-                del self.client_cameras[camera_id]
-            print(f"Removed camera {camera_id} (client {client_id} disconnected)")
+                print(f"Frame error {cam_id}: {e}")
 
-# Global stream manager
-stream_manager = StreamManager()
+    def get(self, cam_id):
+        with self.locks.get(cam_id, threading.Lock()):
+            return self.frames.get(cam_id)
 
-@app.route('/')
-def dashboard():
-    """Main dashboard page"""
-    return render_template('dashboard.html')
+    def cleanup(self, client_id):
+        for cam_id, cid in list(self.clients.items()):
+            if cid == client_id:
+                for d in [self.frames, self.locks, self.fps, self.timestamps, self.status, self.clients]:
+                    d.pop(cam_id, None)
 
-@app.route('/video/<camera_id>.mjpg')
-def video_feed(camera_id):
-    """Generate MJPEG stream for a specific camera"""
-    def generate():
+manager = StreamManager()
+
+@app.route("/")
+def index():
+    return render_template("dashboard.html")
+
+@app.route("/video/<cam_id>.mjpg")
+def stream(cam_id):
+    def gen():
+        last_frame = None
         while True:
-            frame = stream_manager.get_frame(camera_id)
-            if frame is not None:
-                # Encode frame as JPEG
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                frame_bytes = buffer.tobytes()
-                
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            else:
-                # Send a placeholder frame if no camera data
-                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(placeholder, f"Camera {camera_id} - No Signal", 
-                           (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                _, buffer = cv2.imencode('.jpg', placeholder)
-                frame_bytes = buffer.tobytes()
-                
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
-            time.sleep(0.1)  # 10 FPS
-    
-    return Response(generate(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+            jpg_bytes = manager.get(cam_id)
+            if jpg_bytes is not None and jpg_bytes != last_frame:
+                last_frame = jpg_bytes
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg_bytes + b"\r\n"
+            time.sleep(0.033)  # Cap at ~30 FPS
+    return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@app.route('/api/cameras')
-def get_cameras():
-    """Get list of active cameras"""
-    status = stream_manager.get_camera_status()
-    cameras = []
-    
-    for camera_id, camera_status in status.items():
-        cameras.append({
-            'id': camera_id,
-            'name': camera_id.replace('CAMERA_', 'Camera '),
-            'status': camera_status['status'],
-            'last_update': camera_status['last_update'],
-            'fps': camera_status.get('fps', 0)
-        })
-    
-    return jsonify(cameras)
+@app.route("/api/cameras")
+def cameras():
+    now = time.time()
+    cams = []
+    for cam_id, s in manager.status.items():
+        if now - s["last_update"] > 5:
+            s["status"] = "inactive"
+            s["fps"] = 0
+        cams.append({"id": cam_id, "status": s["status"], "fps": s["fps"], "last_update": s["last_update"]})
+    return jsonify(cams)
 
-@app.route('/api/camera/<camera_id>/frame')
-def get_camera_frame(camera_id):
-    """Get a single frame from a camera as base64"""
-    frame = stream_manager.get_frame(camera_id)
-    if frame is not None:
-        # Encode frame as base64
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        frame_base64 = base64.b64encode(buffer).decode('utf-8')
-        return jsonify({
-            'camera_id': camera_id,
-            'frame': frame_base64,
-            'timestamp': time.time()
-        })
+@socketio.on("connect")
+def connect():
+    emit("connected", {"client_id": request.sid})
+
+@socketio.on("disconnect")
+def disconnect():
+    manager.cleanup(request.sid)
+
+@socketio.on("frame")
+def frame(data):
+    cam_id = data.get("camera_id")
+    f = data.get("frame")  # Now binary JPG bytes
+    if cam_id and f:
+        manager.update(cam_id, f, request.sid)
+        emit("frame_received", {"camera_id": cam_id, "status": "success"})
     else:
-        return jsonify({'error': 'Camera not available'}), 404
+        emit("frame_received", {"camera_id": cam_id, "status": "error", "message": "Missing data"})
 
-# WebSocket event handlers
-@socketio.on('connect')
-def handle_connect():
-    """Handle client connection"""
-    client_id = request.sid
-    print(f"Client connected: {client_id}")
-    emit('connected', {'client_id': client_id})
+@socketio.on("register_camera")
+def register(data):
+    emit("camera_registered", {"camera_id": data.get("camera_id"), "status": "success"})
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnection"""
-    client_id = request.sid
-    print(f"Client disconnected: {client_id}")
-    stream_manager.remove_client_cameras(client_id)
-
-@socketio.on('frame')
-def handle_frame(data):
-    """Handle incoming video frame from client"""
-    try:
-        camera_id = data.get('camera_id')
-        frame_data = data.get('frame')  # Base64 encoded frame
-        client_id = request.sid
-        
-        if camera_id and frame_data:
-            # Decode base64 frame data
-            frame_bytes = base64.b64decode(frame_data)
-            stream_manager.update_frame(camera_id, frame_bytes, client_id)
-            
-            # Send acknowledgment
-            emit('frame_received', {'camera_id': camera_id, 'status': 'success'})
-        else:
-            emit('frame_received', {'camera_id': camera_id, 'status': 'error', 'message': 'Invalid data'})
-            
-    except Exception as e:
-        print(f"Error handling frame: {e}")
-        emit('frame_received', {'status': 'error', 'message': str(e)})
-
-@socketio.on('register_camera')
-def handle_register_camera(data):
-    """Handle camera registration from client"""
-    try:
-        camera_id = data.get('camera_id')
-        client_id = request.sid
-        
-        if camera_id:
-            print(f"Camera {camera_id} registered by client {client_id}")
-            emit('camera_registered', {'camera_id': camera_id, 'status': 'success'})
-        else:
-            emit('camera_registered', {'status': 'error', 'message': 'Invalid camera ID'})
-            
-    except Exception as e:
-        print(f"Error registering camera: {e}")
-        emit('camera_registered', {'status': 'error', 'message': str(e)})
-
-if __name__ == '__main__':
-    print("Starting Mentat Server...")
-    print("Dashboard available at: http://localhost:5000")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True) 
+if __name__ == "__main__":
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
