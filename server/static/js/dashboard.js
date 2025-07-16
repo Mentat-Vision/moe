@@ -79,7 +79,7 @@ class Dashboard {
                 <span class="camera-status ${camera.status}">${camera.status}</span>
             </div>
             <div class="video-container">
-                <img src="/video_feed/${camera.id}" alt="${camera.name}" 
+                <img src="/video/${camera.id}.mjpg" alt="${camera.name}" 
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                 <div class="no-signal" style="display: none;">
                     <div class="loading"></div>
