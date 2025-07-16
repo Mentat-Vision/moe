@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mentat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Mentat</h1>
+            <div class="status-bar">
+                <span id="connection-status">Connecting...</span>
+                <span id="camera-count">Cameras: 0</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="camera-grid" id="camera-grid">
+                <!-- Camera feeds will be dynamically added here -->
+            </div>
+        </main>
+
+        <footer>
+            <p>Mentat - Real-time monitoring</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html> 
