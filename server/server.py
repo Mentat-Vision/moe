@@ -16,6 +16,7 @@ class StreamManager:
         self.timestamps = {}
         self.status = {}
         self.clients = {}
+        self.names = {}
 
     def update(self, cam_id, jpg_data, client_id):
         if cam_id not in self.locks:
@@ -71,7 +72,7 @@ def cameras():
         if now - s["last_update"] > 5:
             s["status"] = "inactive"
             s["fps"] = 0
-        cams.append({"id": cam_id, "status": s["status"], "fps": s["fps"], "last_update": s["last_update"]})
+        cams.append({"id": cam_id, "name": manager.names.get(cam_id, cam_id), "status": s["status"], "fps": s["fps"], "last_update": s["last_update"]})
     return jsonify(cams)
 
 @socketio.on("connect")
@@ -94,7 +95,10 @@ def frame(data):
 
 @socketio.on("register_camera")
 def register(data):
-    emit("camera_registered", {"camera_id": data.get("camera_id"), "status": "success"})
+    cam_id = data.get("camera_id")
+    if cam_id:
+        manager.names[cam_id] = data.get("name", cam_id)
+        emit("camera_registered", {"camera_id": cam_id, "status": "success"})
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)

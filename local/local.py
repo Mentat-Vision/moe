@@ -67,12 +67,12 @@ class LocalClient:
             "CAMERA_0": "0",  # Mac webcam
             "CAMERA_1": "1",
             "CAMERA_2": "2",
-            # "CAMERA_RTSP_101": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/101",
-            # "CAMERA_RTSP_201": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/201",
-            # "CAMERA_RTSP_301": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/301",
-            # "CAMERA_RTSP_401": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/401",
-            # "CAMERA_RTSP_501": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/501",
-            # "CAMERA_RTSP_601": "rtsp://user:pass@10.19.55.20:554/Streaming/Channels/601",
+            "CAMERA_RTSP_101": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101",
+            "CAMERA_RTSP_201": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201",
+            "CAMERA_RTSP_301": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301",
+            "CAMERA_RTSP_401": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/401",
+            "CAMERA_RTSP_501": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/501",
+            "CAMERA_RTSP_601": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/601",
         }
 
         self._setup_handlers()
@@ -83,8 +83,10 @@ class LocalClient:
             print("✓ Connected to server")
             self.connected = True
             for camera_id in self.cameras:
-                self.sio.emit('register_camera', {'camera_id': camera_id})
-
+                self.sio.emit('register_camera', {
+                    'camera_id': camera_id,
+                    'name': self.cameras[camera_id].name
+                })
         @self.sio.event
         def disconnect():
             print("✗ Disconnected from server")
