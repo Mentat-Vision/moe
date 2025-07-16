@@ -1,4 +1,4 @@
-# Mentat - Real-time Video Monitoring System
+# Mentat 
 
 A distributed video monitoring system that captures video from multiple cameras and displays them in a web dashboard.
 
