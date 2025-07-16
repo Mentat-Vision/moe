@@ -129,8 +129,8 @@ class LocalClient:
             for camera_id, cam in self.cameras.items():
                 frame = cam.get_frame()
                 if frame is not None:
-                    # Lower quality for smaller size and faster transfer
-                    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                    # Optimize for speed - lower quality but faster encoding
+                    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70, cv2.IMWRITE_JPEG_OPTIMIZE, 1])
                     try:
                         # Send binary bytes directly, no base64
                         self.sio.emit('frame', {
@@ -140,7 +140,7 @@ class LocalClient:
                     except Exception as e:
                         print(f"Emit error: {e}")
                         self.connected = False
-            time.sleep(0.033)  # Aim for ~30 FPS; adjust based on network
+            time.sleep(0.025)  # Aim for ~40 FPS client-side, server will throttle to 30
 
     def start(self):
         self.initialize_cameras()

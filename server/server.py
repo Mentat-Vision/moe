@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, Response, jsonify
 from flask_socketio import SocketIO, emit
 import threading
 import time
+
 from collections import deque
 
 app = Flask(__name__)
@@ -17,6 +18,8 @@ class StreamManager:
         self.status = {}
         self.clients = {}
         self.names = {}
+        self.video_clients = {}  # Track clients requesting video streams
+        self.last_broadcast_time = {}  # Track last broadcast time per camera
 
     def update(self, cam_id, jpg_data, client_id):
         if cam_id not in self.locks:
@@ -33,14 +36,42 @@ class StreamManager:
                     dt = self.timestamps[cam_id][-1] - self.timestamps[cam_id][0]
                     self.fps[cam_id] = round((len(self.timestamps[cam_id]) - 1) / dt, 1) if dt > 0 else 0
                 self.status[cam_id] = {'status': 'active', 'last_update': now, 'fps': self.fps.get(cam_id, 0)}
+                
+                # Throttle video broadcasts to ~30 FPS max
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time[cam_id]) >= 0.033:
+                    self.broadcast_video_frame(cam_id, jpg_data)
+                    self.last_broadcast_time[cam_id] = now
             except Exception as e:
                 print(f"Frame error {cam_id}: {e}")
+
+    def broadcast_video_frame(self, cam_id, jpg_data):
+        if cam_id in self.video_clients and self.video_clients[cam_id]:
+            # Send binary data directly instead of base64 encoding
+            for client_id in list(self.video_clients[cam_id]):
+                try:
+                    socketio.emit('video_frame', {
+                        'camera_id': cam_id,
+                        'frame_data': jpg_data
+                    }, room=client_id)
+                except:
+                    # Remove disconnected clients
+                    self.video_clients[cam_id].discard(client_id)
+
+    def add_video_client(self, cam_id, client_id):
+        if cam_id not in self.video_clients:
+            self.video_clients[cam_id] = set()
+        self.video_clients[cam_id].add(client_id)
+
+    def remove_video_client(self, client_id):
+        for cam_id in self.video_clients:
+            self.video_clients[cam_id].discard(client_id)
 
     def get(self, cam_id):
         with self.locks.get(cam_id, threading.Lock()):
             return self.frames.get(cam_id)
 
     def cleanup(self, client_id):
+        self.remove_video_client(client_id)
         for cam_id, cid in list(self.clients.items()):
             if cid == client_id:
                 for d in [self.frames, self.locks, self.fps, self.timestamps, self.status, self.clients]:
@@ -52,6 +83,7 @@ manager = StreamManager()
 def index():
     return render_template("dashboard.html")
 
+# Keep MJPEG endpoint as fallback
 @app.route("/video/<cam_id>.mjpg")
 def stream(cam_id):
     def gen():
@@ -82,6 +114,13 @@ def connect():
 @socketio.on("disconnect")
 def disconnect():
     manager.cleanup(request.sid)
+
+@socketio.on("request_video_stream")
+def request_video_stream(data):
+    cam_id = data.get("camera_id")
+    if cam_id:
+        manager.add_video_client(cam_id, request.sid)
+        print(f"Client {request.sid} subscribed to video stream {cam_id}")
 
 @socketio.on("frame")
 def frame(data):

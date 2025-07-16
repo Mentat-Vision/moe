@@ -3,6 +3,7 @@ class Dashboard {
         this.cameras = new Map();
         this.updateInterval = null;
         this.statusCheckInterval = null;
+        this.socket = null;
         this.init();
     }
 
@@ -10,11 +11,55 @@ class Dashboard {
         this.updateConnectionStatus('connecting');
         this.startStatusCheck();
         this.loadCameras();
+        this.initWebSocket();
         
         // Set up periodic updates
         this.updateInterval = setInterval(() => {
             this.updateCameraFeeds();
         }, 1000);
+    }
+
+    initWebSocket() {
+        // Connect to the same server using SocketIO
+        this.socket = io();
+        
+        this.socket.on('connect', () => {
+            console.log('WebSocket connected for video streaming');
+            // Request streams for all existing cameras
+            this.cameras.forEach((element, cameraId) => {
+                this.socket.emit('request_video_stream', { camera_id: cameraId });
+            });
+        });
+
+        this.socket.on('disconnect', () => {
+            console.log('WebSocket disconnected');
+        });
+
+        this.socket.on('video_frame', (data) => {
+            const { camera_id, frame_data } = data;
+            this.updateVideoFrame(camera_id, frame_data);
+        });
+    }
+
+    updateVideoFrame(cameraId, frameData) {
+        const cameraElement = this.cameras.get(cameraId);
+        if (cameraElement) {
+            const img = cameraElement.querySelector('.video-container img');
+            if (img) {
+                // Handle binary data directly
+                const blob = new Blob([frameData], { type: 'image/jpeg' });
+                
+                // Revoke previous object URL to prevent memory leaks
+                if (img.currentBlobUrl) {
+                    URL.revokeObjectURL(img.currentBlobUrl);
+                }
+                
+                img.currentBlobUrl = URL.createObjectURL(blob);
+                img.src = img.currentBlobUrl;
+                img.style.display = 'block';
+                img.nextElementSibling.style.display = 'none';
+            }
+        }
     }
 
     updateConnectionStatus(status) {
@@ -79,9 +124,9 @@ class Dashboard {
                 <span class="camera-status ${camera.status}">${camera.status}</span>
             </div>
             <div class="video-container">
-                <img src="/video/${camera.id}.mjpg" alt="${camera.name}" 
+                <img alt="${camera.name}" style="display: none;" 
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                <div class="no-signal" style="display: none;">
+                <div class="no-signal">
                     <div class="loading"></div>
                     <p>No Signal</p>
                 </div>
@@ -97,6 +142,11 @@ class Dashboard {
         cameraDiv.addEventListener('click', () => {
             this.toggleFullscreen(cameraDiv);
         });
+
+        // Request video stream for this camera
+        if (this.socket && this.socket.connected) {
+            this.socket.emit('request_video_stream', { camera_id: camera.id });
+        }
 
         return cameraDiv;
     }
