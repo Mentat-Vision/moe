@@ -61,7 +61,7 @@ class CameraStream:
         last_send_time = time.time()
         backoff = 1  # For exponential backoff on errors
         if 'rtsp' in self.camera_url.lower() and self.process:
-            # Read from FFmpeg stdout for RTSP
+            # Read from FFmpeg stdout for RTSP 
             buffer = b''
             while self.is_running:
                 chunk = self.process.stdout.read(4096)
