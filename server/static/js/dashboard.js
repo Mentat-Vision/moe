@@ -13,10 +13,10 @@ class Dashboard {
         this.loadCameras();
         this.initWebSocket();
         
-        // Set up periodic updates
+        // Set up periodic updates - reduced interval for smoother updates
         this.updateInterval = setInterval(() => {
             this.updateCameraFeeds();
-        }, 1000);
+        }, 100);
     }
 
     initWebSocket() {
@@ -46,18 +46,21 @@ class Dashboard {
         if (cameraElement && document.visibilityState === 'visible') {  // Only update if tab is visible
             const img = cameraElement.querySelector('.video-container img');
             if (img) {
-                // Handle binary data directly
-                const blob = new Blob([frameData], { type: 'image/jpeg' });
-                
-                // Revoke previous object URL to prevent memory leaks
-                if (img.currentBlobUrl) {
-                    URL.revokeObjectURL(img.currentBlobUrl);
-                }
-                
-                img.currentBlobUrl = URL.createObjectURL(blob);
-                img.src = img.currentBlobUrl;
-                img.style.display = 'block';
-                img.nextElementSibling.style.display = 'none';
+                // Use requestAnimationFrame for smoother rendering
+                requestAnimationFrame(() => {
+                    // Handle binary data directly
+                    const blob = new Blob([frameData], { type: 'image/jpeg' });
+                    
+                    // Revoke previous object URL to prevent memory leaks
+                    if (img.currentBlobUrl) {
+                        URL.revokeObjectURL(img.currentBlobUrl);
+                    }
+                    
+                    img.currentBlobUrl = URL.createObjectURL(blob);
+                    img.src = img.currentBlobUrl;
+                    img.style.display = 'block';
+                    img.nextElementSibling.style.display = 'none';
+                });
             }
         }
     }
@@ -200,7 +203,7 @@ class Dashboard {
     startStatusCheck() {
         this.statusCheckInterval = setInterval(() => {
             this.loadCameras();
-        }, 5000); // Check every 5 seconds
+        }, 2000); // Check every 2 seconds for more responsive updates
     }
 
     destroy() {

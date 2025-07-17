@@ -38,8 +38,8 @@ class StreamManager:
                     self.fps[cam_id] = round((len(self.timestamps[cam_id]) - 1) / dt, 1) if dt > 0 else 0
                 self.status[cam_id] = {'status': 'active', 'last_update': now, 'fps': self.fps.get(cam_id, 0)}
                 
-                # Throttle video broadcasts to ~30 FPS max
-                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time[cam_id]) >= 0.033:
+                # Throttle video broadcasts to ~60 FPS max
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time[cam_id]) >= 0.0167:
                     self.broadcast_video_frame(cam_id, jpg_data)
                     self.last_broadcast_time[cam_id] = now
             except Exception as e:
@@ -144,4 +144,4 @@ def register(data):
         emit("camera_registered", {"camera_id": cam_id, "status": "success"})
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
