@@ -134,7 +134,7 @@ class LocalClient:
         # Define your camera sources here, comment/uncomment freely
         self.camera_config = {
             "CAMERA_0": "0",  # Mac webcam
-            # "CAMERA_1": "1",
+            "CAMERA_1": "1",
             "CAMERA_2": "2",
             "CAMERA_RTSP_101": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101",
             "CAMERA_RTSP_201": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201",
