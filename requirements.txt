@@ -1,0 +1,12 @@
+# Local requirements
+requests==2.32.3
+python-socketio==5.11.2 
+
+# Server requirements
+flask==3.0.3
+flask-socketio==5.3.6
+pillow==10.4.0 
+
+# Common requirements
+opencv-python==4.10.0.82
+numpy==2.1.0 

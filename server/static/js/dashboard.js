@@ -43,7 +43,7 @@ class Dashboard {
 
     updateVideoFrame(cameraId, frameData) {
         const cameraElement = this.cameras.get(cameraId);
-        if (cameraElement) {
+        if (cameraElement && document.visibilityState === 'visible') {  // Only update if tab is visible
             const img = cameraElement.querySelector('.video-container img');
             if (img) {
                 // Handle binary data directly
@@ -235,4 +235,4 @@ document.addEventListener('visibilitychange', () => {
             window.dashboard.loadCameras();
         }
     }
-}); 
+});

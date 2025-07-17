@@ -19,6 +19,7 @@ class StreamManager:
         self.clients = {}
         self.names = {}
         self.video_clients = {}  # Track clients requesting video streams
+        self.rooms = {}  # New: Rooms for broadcasting
         self.last_broadcast_time = {}  # Track last broadcast time per camera
 
     def update(self, cam_id, jpg_data, client_id):
@@ -45,26 +46,30 @@ class StreamManager:
                 print(f"Frame error {cam_id}: {e}")
 
     def broadcast_video_frame(self, cam_id, jpg_data):
-        if cam_id in self.video_clients and self.video_clients[cam_id]:
-            # Send binary data directly instead of base64 encoding
-            for client_id in list(self.video_clients[cam_id]):
-                try:
-                    socketio.emit('video_frame', {
-                        'camera_id': cam_id,
-                        'frame_data': jpg_data
-                    }, room=client_id)
-                except:
-                    # Remove disconnected clients
-                    self.video_clients[cam_id].discard(client_id)
+        if cam_id in self.video_clients and self.video_clients[cam_id] and cam_id in self.rooms:
+            # Broadcast to the room once (efficient for many clients)
+            socketio.emit('video_frame', {
+                'camera_id': cam_id,
+                'frame_data': jpg_data
+            }, room=self.rooms[cam_id])
 
     def add_video_client(self, cam_id, client_id):
         if cam_id not in self.video_clients:
             self.video_clients[cam_id] = set()
         self.video_clients[cam_id].add(client_id)
+        
+        # Join the client to the camera's room
+        if cam_id not in self.rooms:
+            self.rooms[cam_id] = f"room_{cam_id}"
+        socketio.server.enter_room(client_id, self.rooms[cam_id])
+        print(f"Client {client_id} subscribed to video stream {cam_id}")
 
     def remove_video_client(self, client_id):
-        for cam_id in self.video_clients:
-            self.video_clients[cam_id].discard(client_id)
+        for cam_id in list(self.video_clients.keys()):
+            if client_id in self.video_clients[cam_id]:
+                self.video_clients[cam_id].discard(client_id)
+                if cam_id in self.rooms:
+                    socketio.server.leave_room(client_id, self.rooms[cam_id])
 
     def get(self, cam_id):
         with self.locks.get(cam_id, threading.Lock()):
@@ -101,7 +106,7 @@ def cameras():
     now = time.time()
     cams = []
     for cam_id, s in manager.status.items():
-        if now - s["last_update"] > 5:
+        if now - s["last_update"] > 10:  # Increased to 10s
             s["status"] = "inactive"
             s["fps"] = 0
         cams.append({"id": cam_id, "name": manager.names.get(cam_id, cam_id), "status": s["status"], "fps": s["fps"], "last_update": s["last_update"]})
@@ -120,7 +125,6 @@ def request_video_stream(data):
     cam_id = data.get("camera_id")
     if cam_id:
         manager.add_video_client(cam_id, request.sid)
-        print(f"Client {request.sid} subscribed to video stream {cam_id}")
 
 @socketio.on("frame")
 def frame(data):
