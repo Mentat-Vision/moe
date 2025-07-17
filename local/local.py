@@ -68,7 +68,7 @@ class CameraStream:
                 if not chunk:
                     print(f"FFmpeg ended for {self.name}, restarting after {backoff}s...")
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 8)  # Exponential backoff up to 8 s
+                    backoff = min(backoff * 2, 8)  # Exponential backoff up to 8s
                     self.process.terminate()
                     self._start_ffmpeg()
                     continue
