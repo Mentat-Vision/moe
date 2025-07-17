@@ -7,7 +7,7 @@ import os
 from typing import Dict
 import subprocess
 import io
-import hashlib  # For frame change detection
+import hashlib  #For frame change detection
 import datetime
 
 class CameraStream:
