@@ -5,9 +5,9 @@
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #0f0f0f 100%);
-    color: #e0e0e0;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+    background: #0a0a0a;
+    color: #f0f0f0;
     min-height: 100vh;
     overflow-x: hidden;
 }
@@ -19,24 +19,22 @@ body {
 }
 
 header {
-    background: rgba(20, 20, 20, 0.95);
+    background: #0f0f0f;
     padding: 25px 30px;
-    border-radius: 15px;
     margin-bottom: 25px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
+    border: 2px solid #333333;
+    border-top: 3px solid #cc2936;
 }
 
 header h1 {
-    color: #00d4ff;
+    color: #ffffff;
     font-size: 2.5rem;
-    font-weight: 700;
-    text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
-    letter-spacing: 2px;
+    font-weight: 300;
+    letter-spacing: 4px;
+    text-transform: uppercase;
 }
 
 .status-bar {
@@ -46,37 +44,37 @@ header h1 {
 }
 
 .status-bar span {
-    padding: 10px 18px;
-    border-radius: 25px;
+    padding: 8px 16px;
     font-size: 0.9rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(5px);
+    font-weight: 500;
+    letter-spacing: 1px;
+    border: 1px solid #333333;
+    background: #141414;
+    text-transform: uppercase;
 }
 
 #connection-status {
-    background: rgba(0, 212, 255, 0.1);
-    color: white;
-    border-color: rgba(0, 212, 255, 0.3);
+    background: #1a1a1a;
+    color: #f0f0f0;
+    border-color: #444444;
 }
 
 #connection-status.connected {
-    background: rgba(76, 175, 80, 0.1);
-    color: #4caf50;
-    border-color: rgba(76, 175, 80, 0.3);
+    background: #1a1a1a;
+    color: #00ff00;
+    border-color: #00aa00;
 }
 
 #connection-status.disconnected {
-    background: rgba(244, 67, 54, 0.1);
-    color: #f44336;
-    border-color: rgba(244, 67, 54, 0.3);
+    background: #1a1a1a;
+    color: #cc2936;
+    border-color: #cc2936;
 }
 
 #camera-count {
-    background: rgba(156, 39, 176, 0.1);
-    color: #9c27b0;
-    border-color: rgba(156, 39, 176, 0.3);
+    background: #1a1a1a;
+    color: #ffffff;
+    border-color: #555555;
 }
 
 .camera-grid {
@@ -87,66 +85,59 @@ header h1 {
 }
 
 .camera-feed {
-    background: rgba(20, 20, 20, 0.95);
-    border-radius: 15px;
+    background: #0f0f0f;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s ease;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
+    transition: all 0.2s ease;
+    border: 1px solid #333333;
 }
 
 .camera-feed:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
-    border-color: rgba(0, 212, 255, 0.3);
+    border-color: #555555;
 }
 
 .camera-header {
-    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-    color: #e0e0e0;
+    background: #141414;
+    color: #f0f0f0;
     padding: 18px 25px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid #333333;
 }
 
 .camera-name {
-    font-weight: 600;
-    font-size: 1.2rem;
-    color: #00d4ff;
-    text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+    font-weight: 400;
+    font-size: 1.1rem;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 .camera-status {
-    padding: 6px 15px;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    border: 1px solid #333333;
+    text-transform: uppercase;
 }
 
 .camera-status.active {
-    background: rgba(76, 175, 80, 0.2);
-    color: #4caf50;
-    border-color: rgba(76, 175, 80, 0.4);
-    box-shadow: 0 0 15px rgba(76, 175, 80, 0.2);
+    background: #1a1a1a;
+    color: #00ff00;
+    border-color: #00aa00;
 }
 
 .camera-status.inactive {
-    background: rgba(244, 67, 54, 0.2);
-    color: #f44336;
-    border-color: rgba(244, 67, 54, 0.4);
-    box-shadow: 0 0 15px rgba(244, 67, 54, 0.2);
+    background: #1a1a1a;
+    color: #cc2936;
+    border-color: #cc2936;
 }
 
 .camera-status.connecting {
-    background: rgba(255, 152, 0, 0.2);
-    color: #ff9800;
-    border-color: rgba(255, 152, 0, 0.4);
-    box-shadow: 0 0 15px rgba(255, 152, 0, 0.2);
+    background: #1a1a1a;
+    color: #ffaa00;
+    border-color: #ffaa00;
 }
 
 .video-container {
@@ -171,16 +162,17 @@ header h1 {
     color: #666;
     font-size: 1.3rem;
     text-align: center;
-    background: rgba(0, 0, 0, 0.8);
+    background: #000000;
     padding: 20px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid #333333;
+    text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 .camera-info {
     padding: 18px 25px;
-    background: rgba(15, 15, 15, 0.8);
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: #0a0a0a;
+    border-top: 1px solid #333333;
 }
 
 .camera-info p {
@@ -193,20 +185,20 @@ header h1 {
 }
 
 .camera-info p span {
-    color: #00d4ff;
-    font-weight: 600;
+    color: #ffffff;
+    font-weight: 500;
 }
 
 /* FPS specific styling */
 .camera-info .fps-text {
-    color: #ffd700;
-    font-weight: 700;
-    text-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+    color: #ffffff;
+    font-weight: 500;
 }
 
 .camera-info .fps-text:before {
-    content: "⚡ ";
+    content: "[FPS] ";
     margin-right: 2px;
+    color: #cc2936;
 }
 
 footer {
@@ -255,10 +247,9 @@ footer {
     display: inline-block;
     width: 25px;
     height: 25px;
-    border: 3px solid rgba(0, 212, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: #00d4ff;
-    animation: spin 1s ease-in-out infinite;
+    border: 3px solid #333333;
+    border-top-color: #cc2936;
+    animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
@@ -295,22 +286,21 @@ footer {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(0, 212, 255, 0.3);
-    border-radius: 4px;
+    background: #333333;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 212, 255, 0.5);
+    background: #555555;
 }
 
 /* Selection styling */
 ::selection {
-    background: rgba(0, 212, 255, 0.3);
-    color: #e0e0e0;
+    background: #cc2936;
+    color: #ffffff;
 }
 
 /* Focus styling */
 .camera-feed:focus {
-    outline: 2px solid rgba(0, 212, 255, 0.5);
+    outline: 2px solid #cc2936;
     outline-offset: 2px;
 } 

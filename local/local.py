@@ -125,7 +125,7 @@ class CameraStream:
 
 class LocalClient:
     def __init__(self, server_url=None):
-        self.server_url = server_url or os.getenv('MENTAT_SERVER_URL', 'http://10.8.162.58:5000')
+        self.server_url = server_url or os.getenv('MENTAT_SERVER_URL', 'http://10.8.162.58:5001')
         self.sio = socketio.Client()
         self.cameras: Dict[str, CameraStream] = {}
         self.connected = False
@@ -133,7 +133,7 @@ class LocalClient:
 
         # Define your camera sources here, comment/uncomment freely
         self.camera_config = {
-            # "CAMERA_0": "0",  
+            "CAMERA_0": "0",  
             "CAMERA_1": "1",
             "CAMERA_2": "2",
             "CAMERA_RTSP_101": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101",
