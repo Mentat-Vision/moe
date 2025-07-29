@@ -4,8 +4,10 @@ class Dashboard {
         this.updateInterval = null;
         this.statusCheckInterval = null;
         this.yoloStatsInterval = null;
+        this.blipStatsInterval = null;
         this.socket = null;
         this.detectionHistory = new Map(); // Store detection history per camera
+        this.captionHistory = new Map(); // Store caption history per camera
         this.init();
     }
 
@@ -28,6 +30,7 @@ class Dashboard {
         // Set up toggle buttons
         this.setupToggleBoxesButton();
         this.setupToggleYoloButton();
+        this.setupToggleBlipButton();
         this.updateYoloStatus();
     }
 
@@ -54,6 +57,10 @@ class Dashboard {
 
         this.socket.on('detection_result', (data) => {
             this.handleDetectionResult(data);
+        });
+
+        this.socket.on('caption_result', (data) => {
+            this.handleCaptionResult(data);
         });
     }
 
@@ -161,6 +168,12 @@ class Dashboard {
                     <p>No detections yet</p>
                 </div>
             </div>
+            <div class="caption-info">
+                <h4>Live Caption</h4>
+                <div class="caption-text" id="caption-${camera.id}">
+                    <p>No caption yet</p>
+                </div>
+            </div>
         `;
 
         // Add click handler for fullscreen
@@ -242,6 +255,26 @@ class Dashboard {
         this.updateDetectionDisplay(camera_name, data);
     }
 
+    handleCaptionResult(data) {
+        const { camera_name, caption, timestamp, fps, gpu_id } = data;
+        
+        // Store caption history
+        if (!this.captionHistory.has(camera_name)) {
+            this.captionHistory.set(camera_name, []);
+        }
+        
+        const history = this.captionHistory.get(camera_name);
+        history.push(data);
+        
+        // Keep only last 5 captions
+        if (history.length > 5) {
+            history.shift();
+        }
+        
+        // Update caption display
+        this.updateCaptionDisplay(camera_name, data);
+    }
+
     updateDetectionDisplay(cameraId, detectionData) {
         const detectionElement = document.getElementById(`detection-${cameraId}`);
         if (detectionElement) {
@@ -268,6 +301,24 @@ class Dashboard {
         }
     }
 
+    updateCaptionDisplay(cameraId, captionData) {
+        const captionElement = document.getElementById(`caption-${cameraId}`);
+        if (captionElement) {
+            const { caption, timestamp, gpu_id } = captionData;
+            const captionTime = new Date(timestamp).toLocaleTimeString();
+            
+            captionElement.innerHTML = `
+                <div class="caption-content">
+                    <p class="caption-text-main">"${caption}"</p>
+                    <div class="caption-meta">
+                        <span>Time: ${captionTime}</span>
+                        <span>GPU: ${gpu_id}</span>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
     groupObjectsByClass(objects) {
         const summary = {};
         objects.forEach(obj => {
@@ -288,6 +339,7 @@ class Dashboard {
             console.error('Error fetching YOLO stats:', error);
         }
     }
+
 
     displayYoloStats(stats) {
         const statsContent = document.getElementById('yolo-stats-content');
@@ -310,6 +362,7 @@ class Dashboard {
 
         statsContent.innerHTML = statsHtml;
     }
+
 
     setupToggleBoxesButton() {
         const toggleBtn = document.getElementById('toggle-boxes-btn');
@@ -375,6 +428,18 @@ class Dashboard {
         }
     }
 
+    setupToggleBlipButton() {
+        const toggleBtn = document.getElementById('toggle-blip-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                // Simple local toggle - just change the button state
+                const isEnabled = toggleBtn.classList.contains('blip-enabled');
+                this.updateBlipButtonState(toggleBtn, !isEnabled);
+                console.log(`BLIP ${!isEnabled ? 'enabled' : 'disabled'} (local toggle)`);
+            });
+        }
+    }
+
     updateYoloButtonState(button, enabled) {
         if (enabled) {
             button.textContent = 'YOLO ON';
@@ -382,6 +447,16 @@ class Dashboard {
         } else {
             button.textContent = 'YOLO OFF';
             button.className = 'toggle-btn yolo-disabled';
+        }
+    }
+
+    updateBlipButtonState(button, enabled) {
+        if (enabled) {
+            button.textContent = 'BLIP ON';
+            button.className = 'toggle-btn blip-enabled';
+        } else {
+            button.textContent = 'BLIP OFF';
+            button.className = 'toggle-btn blip-disabled';
         }
     }
 

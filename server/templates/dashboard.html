@@ -12,11 +12,19 @@
             <h1><img src="{{ url_for('static', filename='mentatRed.png') }}" alt="Mentat Logo" class="mentat-logo"> Mentat</h1>
             <div class="status-bar">
                 <span id="connection-status">Connecting...</span>
-                <span id="camera-count">Cameras: 0</span>
-                <button id="toggle-yolo-btn" class="toggle-btn yolo-enabled">YOLO ON</button>
-                <button id="toggle-boxes-btn" class="toggle-btn">Toggle Boxes</button>
             </div>
         </header>
+
+        <div class="controls-panel">
+            <div class="controls-left">
+                <span id="camera-count">Cameras: 0</span>
+            </div>
+            <div class="controls-right">
+                <button id="toggle-yolo-btn" class="toggle-btn yolo-enabled">YOLO ON</button>
+                <button id="toggle-boxes-btn" class="toggle-btn">Toggle Boxes</button>
+                <button id="toggle-blip-btn" class="toggle-btn blip-enabled">BLIP ON</button>
+            </div>
+        </div>
 
         <main>
             <div class="camera-grid" id="camera-grid">

@@ -26,7 +26,7 @@ class YOLODetector:
             enabled: Whether YOLO processing is enabled
         """
         self.confidence_threshold = confidence_threshold
-        self.detection_interval = 1.0  # Process every 1 second for efficiency
+        self.detection_interval = 0.5  # Process every 0.5 seconds for better responsiveness
         self.draw_boxes = draw_boxes
         self.enabled = enabled
         
@@ -50,13 +50,13 @@ class YOLODetector:
                 break
         
         # Camera-specific data structures
-        self.camera_queues = defaultdict(lambda: queue.Queue(maxsize=10))
+        self.camera_queues = defaultdict(lambda: queue.Queue(maxsize=2))  # Smaller queue for less latency
         self.camera_threads = {}
         self.camera_gpu_mapping = {}
-        self.detection_results = defaultdict(lambda: deque(maxlen=100))
+        self.detection_results = defaultdict(lambda: deque(maxlen=50))  # Smaller buffer
         self.camera_fps = defaultdict(float)
         self.camera_last_detection = defaultdict(float)
-        self.frame_buffers = defaultdict(lambda: deque(maxlen=60))  # Buffer frames for FPS calculation
+        self.frame_buffers = defaultdict(lambda: deque(maxlen=30))  # Smaller buffer for FPS calculation
         self.annotated_frames = defaultdict(bytes)  # Store latest annotated frames
         
         # Thread management
@@ -238,8 +238,8 @@ class YOLODetector:
                 # Draw bounding boxes on frame
                 annotated_frame = self.draw_bounding_boxes(frame, detections, model)
                 
-                # Encode annotated frame as JPEG
-                _, annotated_jpg = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                # Encode annotated frame as JPEG with lower quality for speed
+                _, annotated_jpg = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                 annotated_bytes = annotated_jpg.tobytes()
                 
                 # Store annotated frame for video streaming

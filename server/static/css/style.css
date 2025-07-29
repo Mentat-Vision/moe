@@ -80,10 +80,37 @@ header h1 {
     border-color: #cc2936;
 }
 
+/* Controls Panel */
+.controls-panel {
+    background: #0f0f0f;
+    padding: 15px 30px;
+    margin-bottom: 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 2px solid #333333;
+}
+
+.controls-left {
+    display: flex;
+    align-items: center;
+}
+
+.controls-right {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
 #camera-count {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    border: 1px solid #555555;
     background: #1a1a1a;
     color: #ffffff;
-    border-color: #555555;
+    text-transform: uppercase;
 }
 
 .camera-grid {
@@ -237,8 +264,19 @@ footer {
     }
     
     .status-bar {
+        justify-content: center;
+    }
+    
+    .controls-panel {
         flex-direction: column;
         gap: 15px;
+        text-align: center;
+        padding: 15px;
+    }
+    
+    .controls-right {
+        flex-direction: column;
+        gap: 10px;
     }
     
     .camera-grid {
@@ -443,4 +481,104 @@ footer {
 
 .toggle-btn.yolo-disabled:hover {
     background: #c82333;
+}
+
+.toggle-btn.blip-enabled {
+    background: #17a2b8;
+    border-color: #17a2b8;
+}
+
+.toggle-btn.blip-disabled {
+    background: #6c757d;
+    border-color: #6c757d;
+}
+
+.toggle-btn.blip-enabled:hover {
+    background: #138496;
+}
+
+.toggle-btn.blip-disabled:hover {
+    background: #5a6268;
+}
+
+/* Caption Info Styles */
+.caption-info {
+    margin-top: 15px;
+    padding: 10px;
+    background: #1a1a1a;
+    border-radius: 4px;
+    border-left: 3px solid #17a2b8;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.caption-info h4 {
+    color: #17a2b8;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.caption-text {
+    font-size: 0.8rem;
+    color: #cccccc;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.caption-content {
+    background: #333333;
+    padding: 8px 10px;
+    border-radius: 3px;
+    border-left: 2px solid #17a2b8;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.caption-text-main {
+    font-style: italic;
+    color: #ffffff;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+}
+
+.caption-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: #999999;
+}
+
+.caption-meta span {
+    background: #444444;
+    padding: 2px 5px;
+    border-radius: 2px;
+}
+
+/* BLIP Stats in Stats Panel */
+.blip-stat {
+    border-left-color: #17a2b8;
+}
+
+.blip-stat h4 {
+    color: #17a2b8;
+}
+
+.latest-caption {
+    margin-top: 8px;
+    padding: 5px;
+    background: #333333;
+    border-radius: 3px;
+    font-style: italic;
+}
+
+.latest-caption small {
+    color: #cccccc;
+    font-size: 0.75rem;
 } 

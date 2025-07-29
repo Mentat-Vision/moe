@@ -6,7 +6,10 @@ import time
 import logging
 
 from collections import deque
+import cv2
+import numpy as np
 from yolo import initialize_detector, process_frame, get_all_detections, get_stats, get_annotated_frame
+from blip import initialize_captioner, process_frame as blip_process_frame, get_all_captions, get_stats as blip_get_stats
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +29,36 @@ class StreamManager:
         self.rooms = {}  # New: Rooms for broadcasting
         self.last_broadcast_time = {}  # Track last broadcast time per camera
 
+    def rotate_esp32_image(self, jpg_data):
+        """Rotate ESP32 camera image 180 degrees"""
+        try:
+            # Decode JPG to numpy array
+            frame_array = np.frombuffer(jpg_data, dtype=np.uint8)
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                # Rotate 180 degrees
+                rotated_frame = cv2.rotate(frame, cv2.ROTATE_180)
+                
+                # Encode back to JPG
+                _, rotated_jpg = cv2.imencode('.jpg', rotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                return rotated_jpg.tobytes()
+            else:
+                return jpg_data  # Return original if decode fails
+        except Exception as e:
+            logger.warning(f"Error rotating ESP32 image: {e}")
+            return jpg_data  # Return original if rotation fails
+
     def update(self, cam_id, jpg_data, client_id):
         if cam_id not in self.locks:
             self.locks[cam_id] = threading.Lock()
         with self.locks[cam_id]:
             try:
-                self.frames[cam_id] = jpg_data  # Store raw JPG bytes
+                # Rotate ESP32 camera image 180 degrees before processing
+                if cam_id == "ESP32_CAMERA":
+                    jpg_data = self.rotate_esp32_image(jpg_data)
+                
+                self.frames[cam_id] = jpg_data  # Store processed JPG bytes
                 self.clients[cam_id] = client_id
                 now = time.time()
                 if cam_id not in self.timestamps:
@@ -42,23 +69,35 @@ class StreamManager:
                     self.fps[cam_id] = round((len(self.timestamps[cam_id]) - 1) / dt, 1) if dt > 0 else 0
                 self.status[cam_id] = {'status': 'active', 'last_update': now, 'fps': self.fps.get(cam_id, 0)}
                 
-                # Throttle video broadcasts to ~60 FPS max
-                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time[cam_id]) >= 0.0167:
-                    self.broadcast_video_frame(cam_id, jpg_data)
-                    self.last_broadcast_time[cam_id] = now
+                # Always broadcast video frames immediately for max FPS
+                self.broadcast_video_frame(cam_id, jpg_data)
+                self.last_broadcast_time[cam_id] = now
                 
-                # Process frame through YOLO detector (non-blocking)
-                try:
-                    process_frame(cam_id, jpg_data, now)
-                except Exception as e:
-                    logger.warning(f"YOLO processing error for {cam_id}: {e}")
+                # Process frame through YOLO detector (non-blocking, less frequently)
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_yolo", 0)) >= 0.5:
+                    try:
+                        process_frame(cam_id, jpg_data, now)
+                        self.last_broadcast_time[f"{cam_id}_yolo"] = now
+                    except Exception as e:
+                        logger.warning(f"YOLO processing error for {cam_id}: {e}")
+                
+                # Process frame through BLIP captioner (frequent but optimized)
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_blip", 0)) >= 1.0:
+                    try:
+                        blip_process_frame(cam_id, jpg_data, now)
+                        self.last_broadcast_time[f"{cam_id}_blip"] = now
+                    except Exception as e:
+                        logger.warning(f"BLIP processing error for {cam_id}: {e}")
             except Exception as e:
                 print(f"Frame error {cam_id}: {e}")
 
     def broadcast_video_frame(self, cam_id, jpg_data):
         if cam_id in self.video_clients and self.video_clients[cam_id] and cam_id in self.rooms:
-            # Try to get annotated frame first (only if YOLO is enabled), fallback to original
-            frame_to_send = jpg_data  # Default to raw frame for performance
+            # Always use raw frame for maximum FPS - annotated frames cause lag
+            # Only show annotated frames when explicitly requested
+            frame_to_send = jpg_data
+            
+            # Only use annotated frames if YOLO is on AND boxes are enabled AND we have a recent annotated frame
             if yolo_detector.enabled and yolo_detector.draw_boxes:
                 annotated_frame = get_annotated_frame(cam_id)
                 if annotated_frame:
@@ -105,12 +144,23 @@ manager = StreamManager()
 yolo_detector = initialize_detector()
 print("YOLO detector initialized with multi-GPU support")
 
+# Initialize BLIP captioner
+blip_captioner = initialize_captioner()
+print("BLIP captioner initialized with multi-GPU support")
+
 # Register callback to broadcast detection results
 def broadcast_detection_result(result_data):
     """Broadcast YOLO detection results to connected clients"""
     socketio.emit('detection_result', result_data)
 
 yolo_detector.register_callback(broadcast_detection_result)
+
+# Register callback to broadcast caption results
+def broadcast_caption_result(result_data):
+    """Broadcast BLIP caption results to connected clients"""
+    socketio.emit('caption_result', result_data)
+
+blip_captioner.register_callback(broadcast_caption_result)
 
 @app.route("/")
 def index():
@@ -196,6 +246,7 @@ def yolo_status():
         "detection_interval": yolo_detector.detection_interval,
         "gpu_count": len(yolo_detector.models)
     })
+
 
 @socketio.on("connect")
 def connect():

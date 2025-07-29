@@ -91,7 +91,8 @@ class CameraStream:
                                     # Decode frame
                                     frame = cv2.imdecode(np.frombuffer(jpeg_data, np.uint8), cv2.IMREAD_COLOR)
                                     if frame is not None:
-                                        frame = cv2.resize(frame, (640, 360))
+                                        # Smaller frame size for better performance
+                                        frame = cv2.resize(frame, (480, 270))
                                         with self.lock:
                                             self.frame = frame
                     else:
@@ -128,7 +129,7 @@ class CameraStream:
                     if frame is not None:
                         with self.lock:
                             self.frame = frame
-                    time.sleep(0.033)
+                    time.sleep(0.01)  # Faster processing
                 # Heartbeat check
                 if time.time() - last_send_time > 4:
                     last_send_time = time.time()
@@ -145,7 +146,8 @@ class CameraStream:
                 
                 ret, frame = self.cap.read()
                 if ret and frame is not None:
-                    frame = cv2.resize(frame, (640, 360))
+                    # Smaller frame size for better performance
+                    frame = cv2.resize(frame, (480, 270))
                     with self.lock:
                         self.frame = frame
                 else:
@@ -153,7 +155,7 @@ class CameraStream:
                     self.cap.release()
                     time.sleep(0.5)
                 
-                time.sleep(0.033)
+                time.sleep(0.01)  # Faster processing
                 # Heartbeat check (handled in stream_to_server)
 
     def get_frame(self):
@@ -249,20 +251,13 @@ class LocalClient:
                 if frame is None:
                     continue
 
-                # Change detection: Skip if unchanged, but force every 1s
-                frame_hash = hashlib.md5(frame.tobytes()).digest()
-                force_send = (now - last_send_times[camera_id] > 1)  # Force every 1s
-                if not force_send and frame_hash == cam.last_frame_hash:
-                    # Heartbeat: If no change but >4s since last send, force a duplicate
-                    if now - last_send_times[camera_id] > 4:
-                        pass  # Proceed to send duplicate
-                    else:
-                        continue
-                cam.last_frame_hash = frame_hash
+                # Skip expensive change detection - just throttle by time
+                if now - last_send_times[camera_id] < 0.033:  # ~30 FPS max
+                    continue
                 last_send_times[camera_id] = now
 
-                # Encode and send
-                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70, cv2.IMWRITE_JPEG_OPTIMIZE, 1])
+                # Fast encode with lower quality for better FPS
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
                 try:
                     self.sio.emit('frame', {
                         'camera_id': camera_id,
@@ -282,7 +277,7 @@ class LocalClient:
                 frame_counts = {cid: 0 for cid in self.cameras}
                 last_log_time = now
 
-            time.sleep(0.033)  # ~30 FPS max
+            time.sleep(0.01)  # Higher FPS potential
 
     def start(self):
         self.initialize_cameras()
