@@ -9,6 +9,7 @@ import subprocess
 import io
 import hashlib  #For frame change detection
 import datetime
+import requests
 
 class CameraStream:
     def __init__(self, camera_id: str, camera_url: str, name: str):
@@ -27,6 +28,9 @@ class CameraStream:
             if 'rtsp' in self.camera_url.lower():
                 # Use FFmpeg for RTSP sources
                 self._start_ffmpeg()
+            elif 'http' in self.camera_url.lower():
+                # HTTP MJPEG stream (like ESP32 camera)
+                self.stream_type = 'http_mjpeg'
             else:
                 # Use OpenCV for non-RTSP (e.g., local webcams)
                 backend = cv2.CAP_ANY
@@ -34,6 +38,7 @@ class CameraStream:
                 if not self.cap.isOpened():
                     print(f"✗ Failed to open camera {self.name} ({self.camera_url})")
                     return False
+                self.stream_type = 'opencv'
 
             self.is_running = True
             self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
@@ -60,7 +65,46 @@ class CameraStream:
     def _capture_loop(self):
         last_send_time = time.time()
         backoff = 1  # For exponential backoff on errors
-        if 'rtsp' in self.camera_url.lower() and self.process:
+        
+        if hasattr(self, 'stream_type') and self.stream_type == 'http_mjpeg':
+            # HTTP MJPEG stream (like ESP32 camera)
+            while self.is_running:
+                try:
+                    response = requests.get(self.camera_url, stream=True, timeout=10)
+                    if response.status_code == 200:
+                        buffer = b''
+                        for chunk in response.iter_content(chunk_size=1024):
+                            if not self.is_running:
+                                break
+                            buffer += chunk
+                            
+                            # Look for JPEG boundaries
+                            while b'\xff\xd8' in buffer and b'\xff\xd9' in buffer:
+                                start = buffer.find(b'\xff\xd8')
+                                end = buffer.find(b'\xff\xd9', start) + 2
+                                
+                                if end > start:
+                                    # Extract JPEG frame
+                                    jpeg_data = buffer[start:end]
+                                    buffer = buffer[end:]
+                                    
+                                    # Decode frame
+                                    frame = cv2.imdecode(np.frombuffer(jpeg_data, np.uint8), cv2.IMREAD_COLOR)
+                                    if frame is not None:
+                                        frame = cv2.resize(frame, (640, 360))
+                                        with self.lock:
+                                            self.frame = frame
+                    else:
+                        print(f"HTTP error {response.status_code} for {self.name}, retrying after {backoff}s...")
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, 8)
+                        
+                except Exception as e:
+                    print(f"HTTP stream error for {self.name}: {e}, retrying after {backoff}s...")
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 8)
+                    
+        elif 'rtsp' in self.camera_url.lower() and self.process:
             # Read from FFmpeg stdout for RTSP
             buffer = b''
             while self.is_running:
@@ -136,6 +180,7 @@ class LocalClient:
             "CAMERA_0": "0",  
             "CAMERA_1": "1",
             "CAMERA_2": "2",
+            "ESP32_CAMERA": "http://10.8.120.220/stream",
             "CAMERA_RTSP_101": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101",
             "CAMERA_RTSP_201": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201",
             "CAMERA_RTSP_301": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301",
