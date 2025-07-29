@@ -3,7 +3,9 @@ class Dashboard {
         this.cameras = new Map();
         this.updateInterval = null;
         this.statusCheckInterval = null;
+        this.yoloStatsInterval = null;
         this.socket = null;
+        this.detectionHistory = new Map(); // Store detection history per camera
         this.init();
     }
 
@@ -17,6 +19,16 @@ class Dashboard {
         this.updateInterval = setInterval(() => {
             this.updateCameraFeeds();
         }, 100);
+        
+        // Set up YOLO stats updates
+        this.yoloStatsInterval = setInterval(() => {
+            this.updateYoloStats();
+        }, 2000);
+        
+        // Set up toggle buttons
+        this.setupToggleBoxesButton();
+        this.setupToggleYoloButton();
+        this.updateYoloStatus();
     }
 
     initWebSocket() {
@@ -38,6 +50,10 @@ class Dashboard {
         this.socket.on('video_frame', (data) => {
             const { camera_id, frame_data } = data;
             this.updateVideoFrame(camera_id, frame_data);
+        });
+
+        this.socket.on('detection_result', (data) => {
+            this.handleDetectionResult(data);
         });
     }
 
@@ -139,6 +155,12 @@ class Dashboard {
                 <p>FPS: <span class="fps-text">${camera.fps || 0}</span></p>
                 <p>Last Update: <span class="last-update">${this.formatTimestamp(camera.last_update)}</span></p>
             </div>
+            <div class="detection-info">
+                <h4>Latest Detections</h4>
+                <div class="detection-list" id="detection-${camera.id}">
+                    <p>No detections yet</p>
+                </div>
+            </div>
         `;
 
         // Add click handler for fullscreen
@@ -200,6 +222,169 @@ class Dashboard {
         }
     }
 
+    handleDetectionResult(data) {
+        const { camera_name, objects, timestamp, fps, detection_count, gpu_id } = data;
+        
+        // Store detection history
+        if (!this.detectionHistory.has(camera_name)) {
+            this.detectionHistory.set(camera_name, []);
+        }
+        
+        const history = this.detectionHistory.get(camera_name);
+        history.push(data);
+        
+        // Keep only last 10 detections
+        if (history.length > 10) {
+            history.shift();
+        }
+        
+        // Update detection display
+        this.updateDetectionDisplay(camera_name, data);
+    }
+
+    updateDetectionDisplay(cameraId, detectionData) {
+        const detectionElement = document.getElementById(`detection-${cameraId}`);
+        if (detectionElement) {
+            const { objects, timestamp, detection_count, gpu_id } = detectionData;
+            
+            if (objects.length === 0) {
+                detectionElement.innerHTML = '<p>No objects detected</p>';
+            } else {
+                const objectSummary = this.groupObjectsByClass(objects);
+                const detectionTime = new Date(timestamp).toLocaleTimeString();
+                
+                detectionElement.innerHTML = `
+                    <div class="detection-summary">
+                        <p><strong>Time:</strong> ${detectionTime}</p>
+                        <p><strong>GPU:</strong> ${gpu_id} | <strong>Objects:</strong> ${detection_count}</p>
+                        <div class="objects-list">
+                            ${Object.entries(objectSummary).map(([className, count]) => 
+                                `<span class="object-tag">${className} (${count})</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    groupObjectsByClass(objects) {
+        const summary = {};
+        objects.forEach(obj => {
+            const className = obj.class_name || 'unknown';
+            summary[className] = (summary[className] || 0) + 1;
+        });
+        return summary;
+    }
+
+    async updateYoloStats() {
+        try {
+            const response = await fetch('/api/yolo/stats');
+            if (response.ok) {
+                const stats = await response.json();
+                this.displayYoloStats(stats);
+            }
+        } catch (error) {
+            console.error('Error fetching YOLO stats:', error);
+        }
+    }
+
+    displayYoloStats(stats) {
+        const statsContent = document.getElementById('yolo-stats-content');
+        if (Object.keys(stats).length === 0) {
+            statsContent.innerHTML = '<p>No camera processing stats available</p>';
+            return;
+        }
+
+        const statsHtml = Object.entries(stats).map(([cameraId, stat]) => `
+            <div class="camera-stat">
+                <h4>${cameraId}</h4>
+                <div class="stat-grid">
+                    <span>FPS: ${stat.fps}</span>
+                    <span>GPU: ${stat.assigned_gpu}</span>
+                    <span>Queue: ${stat.queue_size}</span>
+                    <span>Objects: ${stat.recent_object_count}</span>
+                </div>
+            </div>
+        `).join('');
+
+        statsContent.innerHTML = statsHtml;
+    }
+
+    setupToggleBoxesButton() {
+        const toggleBtn = document.getElementById('toggle-boxes-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/yolo/toggle_boxes', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        toggleBtn.textContent = result.draw_boxes ? 'Hide Boxes' : 'Show Boxes';
+                        toggleBtn.style.background = result.draw_boxes ? '#cc2936' : '#333333';
+                        console.log(result.message);
+                    }
+                } catch (error) {
+                    console.error('Error toggling bounding boxes:', error);
+                }
+            });
+        }
+    }
+
+    setupToggleYoloButton() {
+        const toggleBtn = document.getElementById('toggle-yolo-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/yolo/toggle', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        this.updateYoloButtonState(toggleBtn, result.enabled);
+                        console.log(result.message);
+                    }
+                } catch (error) {
+                    console.error('Error toggling YOLO:', error);
+                }
+            });
+        }
+    }
+
+    async updateYoloStatus() {
+        try {
+            const response = await fetch('/api/yolo/status');
+            if (response.ok) {
+                const status = await response.json();
+                const toggleBtn = document.getElementById('toggle-yolo-btn');
+                if (toggleBtn) {
+                    this.updateYoloButtonState(toggleBtn, status.enabled);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching YOLO status:', error);
+        }
+    }
+
+    updateYoloButtonState(button, enabled) {
+        if (enabled) {
+            button.textContent = 'YOLO ON';
+            button.className = 'toggle-btn yolo-enabled';
+        } else {
+            button.textContent = 'YOLO OFF';
+            button.className = 'toggle-btn yolo-disabled';
+        }
+    }
+
     startStatusCheck() {
         this.statusCheckInterval = setInterval(() => {
             this.loadCameras();
@@ -212,6 +397,9 @@ class Dashboard {
         }
         if (this.statusCheckInterval) {
             clearInterval(this.statusCheckInterval);
+        }
+        if (this.yoloStatsInterval) {
+            clearInterval(this.yoloStatsInterval);
         }
     }
 }

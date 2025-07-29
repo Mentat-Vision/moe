@@ -35,6 +35,15 @@ header h1 {
     font-weight: 300;
     letter-spacing: 4px;
     text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.mentat-logo {
+    height: 40px;
+    width: auto;
+    filter: drop-shadow(0 0 5px rgba(204, 41, 54, 0.3));
 }
 
 .status-bar {
@@ -303,4 +312,135 @@ footer {
 .camera-feed:focus {
     outline: 2px solid #cc2936;
     outline-offset: 2px;
+}
+
+/* YOLO Detection Styles */
+.detection-info {
+    margin-top: 15px;
+    padding: 10px;
+    background: #1a1a1a;
+    border-radius: 4px;
+    border-left: 3px solid #cc2936;
+}
+
+.detection-info h4 {
+    color: #cc2936;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.detection-list {
+    font-size: 0.8rem;
+    color: #cccccc;
+}
+
+.detection-summary p {
+    margin-bottom: 5px;
+}
+
+.objects-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.object-tag {
+    background: #333333;
+    color: #ffffff;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    border: 1px solid #cc2936;
+}
+
+/* YOLO Stats Panel */
+.yolo-stats-panel {
+    margin-top: 30px;
+    background: #111111;
+    border: 2px solid #333333;
+    border-top: 3px solid #cc2936;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.yolo-stats-panel h3 {
+    color: #cc2936;
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.camera-stat {
+    background: #1a1a1a;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border-left: 3px solid #666666;
+}
+
+.camera-stat h4 {
+    color: #ffffff;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    font-size: 0.8rem;
+}
+
+.stat-grid span {
+    background: #333333;
+    padding: 5px 8px;
+    border-radius: 3px;
+    text-align: center;
+}
+
+/* Toggle Button */
+.toggle-btn {
+    background: #333333;
+    color: #ffffff;
+    border: 2px solid #cc2936;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+}
+
+.toggle-btn:hover {
+    background: #cc2936;
+    transform: translateY(-1px);
+}
+
+.toggle-btn:active {
+    transform: translateY(0);
+}
+
+.toggle-btn.yolo-enabled {
+    background: #28a745;
+    border-color: #28a745;
+}
+
+.toggle-btn.yolo-disabled {
+    background: #dc3545;
+    border-color: #dc3545;
+}
+
+.toggle-btn.yolo-enabled:hover {
+    background: #218838;
+}
+
+.toggle-btn.yolo-disabled:hover {
+    background: #c82333;
 } 

@@ -9,16 +9,25 @@
 <body>
     <div class="container">
         <header>
-            <h1>Mentat</h1>
+            <h1><img src="{{ url_for('static', filename='mentatRed.png') }}" alt="Mentat Logo" class="mentat-logo"> Mentat</h1>
             <div class="status-bar">
                 <span id="connection-status">Connecting...</span>
                 <span id="camera-count">Cameras: 0</span>
+                <button id="toggle-yolo-btn" class="toggle-btn yolo-enabled">YOLO ON</button>
+                <button id="toggle-boxes-btn" class="toggle-btn">Toggle Boxes</button>
             </div>
         </header>
 
         <main>
             <div class="camera-grid" id="camera-grid">
                 <!-- Camera feeds will be dynamically added here -->
+            </div>
+            
+            <div class="yolo-stats-panel" id="yolo-stats-panel">
+                <h3>YOLO Processing Stats</h3>
+                <div id="yolo-stats-content">
+                    <p>Initializing YOLO detector...</p>
+                </div>
             </div>
         </main>
 

@@ -3,8 +3,12 @@ from flask import Flask, render_template, request, Response, jsonify
 from flask_socketio import SocketIO, emit
 import threading
 import time
+import logging
 
 from collections import deque
+from yolo import initialize_detector, process_frame, get_all_detections, get_stats, get_annotated_frame
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -42,15 +46,28 @@ class StreamManager:
                 if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time[cam_id]) >= 0.0167:
                     self.broadcast_video_frame(cam_id, jpg_data)
                     self.last_broadcast_time[cam_id] = now
+                
+                # Process frame through YOLO detector (non-blocking)
+                try:
+                    process_frame(cam_id, jpg_data, now)
+                except Exception as e:
+                    logger.warning(f"YOLO processing error for {cam_id}: {e}")
             except Exception as e:
                 print(f"Frame error {cam_id}: {e}")
 
     def broadcast_video_frame(self, cam_id, jpg_data):
         if cam_id in self.video_clients and self.video_clients[cam_id] and cam_id in self.rooms:
+            # Try to get annotated frame first (only if YOLO is enabled), fallback to original
+            frame_to_send = jpg_data  # Default to raw frame for performance
+            if yolo_detector.enabled and yolo_detector.draw_boxes:
+                annotated_frame = get_annotated_frame(cam_id)
+                if annotated_frame:
+                    frame_to_send = annotated_frame
+            
             # Broadcast to the room once (efficient for many clients)
             socketio.emit('video_frame', {
                 'camera_id': cam_id,
-                'frame_data': jpg_data
+                'frame_data': frame_to_send
             }, room=self.rooms[cam_id])
 
     def add_video_client(self, cam_id, client_id):
@@ -84,6 +101,17 @@ class StreamManager:
 
 manager = StreamManager()
 
+# Initialize YOLO detector
+yolo_detector = initialize_detector()
+print("YOLO detector initialized with multi-GPU support")
+
+# Register callback to broadcast detection results
+def broadcast_detection_result(result_data):
+    """Broadcast YOLO detection results to connected clients"""
+    socketio.emit('detection_result', result_data)
+
+yolo_detector.register_callback(broadcast_detection_result)
+
 @app.route("/")
 def index():
     return render_template("dashboard.html")
@@ -94,7 +122,10 @@ def stream(cam_id):
     def gen():
         last_frame = None
         while True:
-            jpg_bytes = manager.get(cam_id)
+            # Try to get annotated frame first, fallback to original
+            annotated_frame = get_annotated_frame(cam_id)
+            jpg_bytes = annotated_frame if annotated_frame else manager.get(cam_id)
+            
             if jpg_bytes is not None and jpg_bytes != last_frame:
                 last_frame = jpg_bytes
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg_bytes + b"\r\n"
@@ -111,6 +142,60 @@ def cameras():
             s["fps"] = 0
         cams.append({"id": cam_id, "name": manager.names.get(cam_id, cam_id), "status": s["status"], "fps": s["fps"], "last_update": s["last_update"]})
     return jsonify(cams)
+
+@app.route("/api/detections")
+def all_detections():
+    """Get latest detection results for all cameras"""
+    return jsonify(get_all_detections())
+
+@app.route("/api/detections/<cam_id>")
+def camera_detections(cam_id):
+    """Get latest detection results for a specific camera"""
+    from yolo import get_detections
+    return jsonify(get_detections(cam_id))
+
+@app.route("/api/yolo/stats")
+def yolo_stats():
+    """Get YOLO processing statistics"""
+    return jsonify(get_stats())
+
+@app.route("/api/yolo/toggle_boxes", methods=["POST"])
+def toggle_bounding_boxes():
+    """Toggle bounding box drawing on/off"""
+    global yolo_detector
+    current_state = yolo_detector.draw_boxes
+    yolo_detector.draw_boxes = not current_state
+    return jsonify({
+        "draw_boxes": yolo_detector.draw_boxes,
+        "message": f"Bounding boxes {'enabled' if yolo_detector.draw_boxes else 'disabled'}"
+    })
+
+@app.route("/api/yolo/toggle", methods=["POST"])
+def toggle_yolo():
+    """Toggle YOLO processing on/off"""
+    global yolo_detector
+    current_state = yolo_detector.enabled
+    yolo_detector.enabled = not current_state
+    
+    # Clear annotated frames when disabling to force fallback to raw frames
+    if not yolo_detector.enabled:
+        yolo_detector.annotated_frames.clear()
+    
+    return jsonify({
+        "enabled": yolo_detector.enabled,
+        "message": f"YOLO processing {'enabled' if yolo_detector.enabled else 'disabled'}"
+    })
+
+@app.route("/api/yolo/status")
+def yolo_status():
+    """Get current YOLO status"""
+    global yolo_detector
+    return jsonify({
+        "enabled": yolo_detector.enabled,
+        "draw_boxes": yolo_detector.draw_boxes,
+        "detection_interval": yolo_detector.detection_interval,
+        "gpu_count": len(yolo_detector.models)
+    })
 
 @socketio.on("connect")
 def connect():
