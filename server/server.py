@@ -81,8 +81,8 @@ class StreamManager:
                     except Exception as e:
                         logger.warning(f"YOLO processing error for {cam_id}: {e}")
                 
-                # Process frame through BLIP captioner (frequent but optimized)
-                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_blip", 0)) >= 1.0:
+                # Process frame through BLIP captioner (balanced speed)
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_blip", 0)) >= 0.5:
                     try:
                         blip_process_frame(cam_id, jpg_data, now)
                         self.last_broadcast_time[f"{cam_id}_blip"] = now

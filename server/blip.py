@@ -25,9 +25,9 @@ class BLIPCaptioner:
             enabled: Whether BLIP processing is enabled
         """
         self.model_name = model_name
-        self.caption_interval = 1.0  # Caption every second for high frequency
+        self.caption_interval = 0.2  # Caption every 200ms for near real-time
         self.enabled = enabled
-        self.max_image_size = (224, 224)  # Small images for speed
+        self.max_image_size = (128, 128)  # Smaller images for maximum speed
         
         # GPU configuration - distribute across available GPUs
         self.available_gpus = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else [None]
@@ -123,12 +123,12 @@ class BLIPCaptioner:
             if device != "cpu":
                 inputs = {k: v.to(device, dtype=torch.float16) for k, v in inputs.items()}
             
-            # Generate caption with speed optimizations but longer text
+            # Generate caption with maximum speed optimizations
             with torch.no_grad(), torch.cuda.amp.autocast():  # Mixed precision for speed
                 generated_ids = model.generate(
                     **inputs,
-                    max_length=20,  # Longer captions for more detail
-                    min_length=5,   # Reasonable minimum
+                    max_length=15,  # Shorter for speed
+                    min_length=3,   # Minimal length
                     num_beams=1,    # Single beam for fastest generation
                     do_sample=False,
                     early_stopping=True,
@@ -168,9 +168,9 @@ class BLIPCaptioner:
         if not self.enabled:
             return
         
-        # Only process if enough time has passed (caption_interval)
+        # Only process if enough time has passed AND not currently processing
         last_caption = self.camera_last_caption[camera_id]
-        if timestamp - last_caption >= self.caption_interval:
+        if timestamp - last_caption >= self.caption_interval and not self.processing_flags[camera_id]:
             try:
                 # Replace any existing frame in queue (we only want the latest)
                 while not self.camera_queues[camera_id].empty():
@@ -223,7 +223,7 @@ class BLIPCaptioner:
                 pil_image = Image.fromarray(frame_rgb)
                 
                 # Resize image for faster processing with fastest method
-                pil_image = pil_image.resize(self.max_image_size, Image.NEAREST)
+                pil_image = pil_image.resize(self.max_image_size, Image.BILINEAR)
                 
                 # Generate caption
                 caption = self.generate_caption(pil_image, processor, model, device)
