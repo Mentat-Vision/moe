@@ -8,8 +8,8 @@ import logging
 from collections import deque
 import cv2
 import numpy as np
-from yolo import initialize_detector, process_frame, get_all_detections, get_stats, get_annotated_frame
-from blip import initialize_captioner, process_frame as blip_process_frame, get_all_captions, get_stats as blip_get_stats, switch_model as blip_switch_model, get_current_model_info
+from system1.yolo import initialize_detector, process_frame, get_all_detections, get_stats, get_annotated_frame
+from system1.blip import initialize_captioner, process_frame as blip_process_frame, get_all_captions, get_stats as blip_get_stats, get_current_model_info
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,8 @@ class StreamManager:
                     except Exception as e:
                         logger.warning(f"YOLO processing error for {cam_id}: {e}")
                 
-                # Process frame through BLIP captioner (balanced speed)
-                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_blip", 0)) >= 0.5:
+                # Process frame through BLIP captioner (maximum speed)
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_blip", 0)) >= 0.1:
                     try:
                         blip_process_frame(cam_id, jpg_data, now)
                         self.last_broadcast_time[f"{cam_id}_blip"] = now
@@ -257,72 +257,6 @@ def blip_stats():
 def blip_status():
     """Get current BLIP status and model info"""
     return jsonify(get_current_model_info())
-
-@app.route("/api/blip/models")
-def blip_available_models():
-    """Get available BLIP models"""
-    return jsonify({
-        "models": [
-            {
-                "id": "blip-base",
-                "name": "BLIP Base",
-                "model_name": "Salesforce/blip-image-captioning-base",
-                "type": "blip",
-                "description": "Original BLIP model - fast and lightweight"
-            },
-            {
-                "id": "blip-large", 
-                "name": "BLIP Large",
-                "model_name": "Salesforce/blip-image-captioning-large",
-                "type": "blip",
-                "description": "Original BLIP model - better quality but slower"
-            },
-            {
-                "id": "blip2-opt",
-                "name": "BLIP-2 OPT-2.7B",
-                "model_name": "Salesforce/blip2-opt-2.7b",
-                "type": "blip2",
-                "description": "BLIP-2 with OPT language model - improved captions"
-            },
-            {
-                "id": "blip2-flan-t5",
-                "name": "BLIP-2 Flan-T5-XL",
-                "model_name": "Salesforce/blip2-flan-t5-xl",
-                "type": "blip2", 
-                "description": "BLIP-2 with Flan-T5 - highest quality captions"
-            },
-            {
-                "id": "instructblip-vicuna",
-                "name": "InstructBLIP Vicuna-7B",
-                "model_name": "Salesforce/instructblip-vicuna-7b",
-                "type": "instructblip",
-                "description": "InstructBLIP with Vicuna - instruction-following captions"
-            },
-            {
-                "id": "instructblip-flan-t5",
-                "name": "InstructBLIP Flan-T5-XL", 
-                "model_name": "Salesforce/instructblip-flan-t5-xl",
-                "type": "instructblip",
-                "description": "InstructBLIP with Flan-T5 - customizable captions"
-            }
-        ]
-    })
-
-@app.route("/api/blip/switch_model", methods=["POST"])
-def switch_blip_model():
-    """Switch BLIP model"""
-    try:
-        data = request.get_json()
-        if not data or 'model_name' not in data:
-            return jsonify({"success": False, "error": "Missing model_name parameter"}), 400
-        
-        model_name = data['model_name']
-        result = blip_switch_model(model_name)
-        
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error switching BLIP model: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/blip/toggle", methods=["POST"])
 def toggle_blip():

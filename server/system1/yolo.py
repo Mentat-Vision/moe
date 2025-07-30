@@ -15,12 +15,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class YOLODetector:
-    def __init__(self, model_path: str = "yolo11m.pt", confidence_threshold: float = 0.5, draw_boxes: bool = True, enabled: bool = True):
+    def __init__(self, model_name: str = "yolo11m.pt", confidence_threshold: float = 0.5, draw_boxes: bool = True, enabled: bool = True):
         """
-        Initialize YOLO detector with multi-GPU support
+        Initialize YOLO detector with multi-GPU support and auto-download
         
         Args:
-            model_path: Path to YOLO model weights
+            model_name: YOLO model name (will be auto-downloaded to server cache)
             confidence_threshold: Minimum confidence for detections
             draw_boxes: Whether to draw bounding boxes on frames
             enabled: Whether YOLO processing is enabled
@@ -30,22 +30,26 @@ class YOLODetector:
         self.draw_boxes = draw_boxes
         self.enabled = enabled
         
-        # GPU configuration - distribute across 8 Tesla V100s
+        # GPU configuration - distribute across available GPUs
         self.available_gpus = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else [None]
         logger.info(f"Available GPUs: {self.available_gpus}")
         
         # Load models on different GPUs for load balancing
+        # Ultralytics will auto-download the model to ~/.ultralytics cache if not found
         self.models = {}
+        logger.info(f"Loading YOLO model: {model_name} (will auto-download to server cache if needed)")
+        
         for i, gpu_id in enumerate(self.available_gpus[:8]):  # Use up to 8 GPUs
             if gpu_id is not None:
                 device = f"cuda:{gpu_id}"
-                model = YOLO(model_path)
+                # YOLO() will automatically download model to ~/.ultralytics cache
+                model = YOLO(model_name)
                 model.to(device)
                 self.models[gpu_id] = model
                 logger.info(f"Loaded YOLO model on GPU {gpu_id}")
             else:
                 # CPU fallback
-                self.models[0] = YOLO(model_path)
+                self.models[0] = YOLO(model_name)
                 logger.info("Loaded YOLO model on CPU")
                 break
         
@@ -321,10 +325,10 @@ class YOLODetector:
 # Global detector instance
 detector = None
 
-def initialize_detector(model_path: str = "yolo11m.pt", confidence_threshold: float = 0.5, draw_boxes: bool = True, enabled: bool = True):
-    """Initialize the global YOLO detector"""
+def initialize_detector(model_name: str = "yolo11m.pt", confidence_threshold: float = 0.5, draw_boxes: bool = True, enabled: bool = True):
+    """Initialize the global YOLO detector with auto-download"""
     global detector
-    detector = YOLODetector(model_path, confidence_threshold, draw_boxes, enabled)
+    detector = YOLODetector(model_name, confidence_threshold, draw_boxes, enabled)
     return detector
 
 def get_detector():

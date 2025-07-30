@@ -7,13 +7,13 @@ import json
 from collections import deque, defaultdict
 from datetime import datetime
 
-# Option 1: Original BLIP (current)
-# from transformers import BlipProcessor, BlipForConditionalGeneration
+# Option 1: Original BLIP (fastest - current)
+from transformers import BlipProcessor, BlipForConditionalGeneration
 
-# Option 2: BLIP-2 (comment out the above and uncomment below)
-from transformers import Blip2Processor, Blip2ForConditionalGeneration
+# Option 2: BLIP-2 (not used for speed optimization)
+# from transformers import Blip2Processor, Blip2ForConditionalGeneration
 
-# Option 3: InstructBLIP (comment out the above and uncomment below)  
+# Option 3: InstructBLIP (not used for speed optimization)  
 # from transformers import InstructBlipProcessor, InstructBlipForConditionalGeneration
 from PIL import Image
 import queue
@@ -31,13 +31,12 @@ class BLIPCaptioner:
         Args:
             enabled: Whether BLIP processing is enabled
         """
-        self.model_name = model_name
-        self.caption_interval = 0.2  # Caption every 200ms for near real-time
+        # Force fastest model and settings
+        self.model_name = "Salesforce/blip-image-captioning-base"  # Always use fastest
+        self.caption_interval = 0.05  # Caption every 50ms for maximum speed
         self.enabled = enabled
-        self.max_image_size = (128, 128)  # Smaller images for maximum speed
-        
-        # Determine model type based on model name
-        self.model_type = self._determine_model_type(model_name)
+        self.max_image_size = (64, 64)  # Very small for maximum speed
+        self.model_type = 'blip'  # Always fastest BLIP
         
         # GPU configuration - distribute across available GPUs
         self.available_gpus = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else [None]
@@ -51,7 +50,7 @@ class BLIPCaptioner:
             if gpu_id is not None:
                 device = f"cuda:{gpu_id}"
                 try:
-                    processor, model = self._load_model_and_processor(model_name, device)
+                    processor, model = self._load_model_and_processor(self.model_name, device)
                     
                     self.processors[gpu_id] = processor
                     self.models[gpu_id] = model
@@ -87,38 +86,11 @@ class BLIPCaptioner:
         # Processing flags to prevent concurrent processing per camera
         self.processing_flags = defaultdict(bool)
     
-    def _determine_model_type(self, model_name: str) -> str:
-        """Determine model type based on model name"""
-        model_name_lower = model_name.lower()
-        if 'blip2' in model_name_lower or 'blip-2' in model_name_lower:
-            return 'blip2'
-        elif 'instructblip' in model_name_lower or 'instruct' in model_name_lower:
-            return 'instructblip'
-        else:
-            return 'blip'
-    
     def _load_model_and_processor(self, model_name: str, device: str):
-        """Load model and processor based on model type"""
-        if self.model_type == 'blip2':
-            # BLIP-2 model loading
-            processor = Blip2Processor.from_pretrained(model_name)
-            model = Blip2ForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.float16)
-        elif self.model_type == 'instructblip':
-            # InstructBLIP model loading  
-            # Note: InstructBLIP uses Blip2 classes
-            processor = Blip2Processor.from_pretrained(model_name)
-            model = Blip2ForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.float16)
-        else:
-            # Original BLIP model loading - this will fail if imports are wrong
-            # We need to handle this case differently
-            try:
-                from transformers import BlipProcessor, BlipForConditionalGeneration
-                processor = BlipProcessor.from_pretrained(model_name)
-                model = BlipForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.float16)
-            except ImportError:
-                # Fallback if BLIP classes aren't imported
-                processor = Blip2Processor.from_pretrained(model_name)
-                model = Blip2ForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.float16)
+        """Load fastest BLIP model and processor"""
+        # Always use original BLIP for maximum speed
+        processor = BlipProcessor.from_pretrained(model_name)
+        model = BlipForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.float16)
         
         model.to(device)
         model.eval()  # Set to evaluation mode for faster inference
@@ -163,41 +135,15 @@ class BLIPCaptioner:
             Generated caption string
         """
         try:
-            # Process image based on model type
-            if self.model_type == 'blip2':
-                # BLIP-2 uses different input processing
-                inputs = processor(images=image, return_tensors="pt")
-            elif self.model_type == 'instructblip':
-                # InstructBLIP can use text prompts for better control
-                # You can customize this prompt for better captions
-                prompt = "Describe this image:"
-                inputs = processor(images=image, text=prompt, return_tensors="pt")
-            else:
-                # Original BLIP
-                inputs = processor(image, return_tensors="pt")
+            # Fastest processing - original BLIP style
+            inputs = processor(image, return_tensors="pt")
             
-            # Move inputs to correct device with appropriate precision
+            # Move inputs to correct device with maximum speed precision
             if device != "cpu":
-                if self.model_type in ['blip2', 'instructblip']:
-                    # Some models might need different precision handling
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
-                else:
-                    inputs = {k: v.to(device, dtype=torch.float16) for k, v in inputs.items()}
+                inputs = {k: v.to(device, dtype=torch.float16) for k, v in inputs.items()}
             
-            # Generate caption with model-specific parameters
-            # Different models need different generation parameters
-            if self.model_type == 'blip':
-                # Original BLIP - can be shorter and faster
-                max_len, min_len, beams = 20, 5, 1
-            elif self.model_type == 'blip2':
-                # BLIP-2 - allow longer captions for better quality
-                max_len, min_len, beams = 30, 5, 1
-            elif self.model_type == 'instructblip':
-                # InstructBLIP - needs longer captions, especially Flan-T5
-                max_len, min_len, beams = 50, 5, 1
-            else:
-                # Default fallback
-                max_len, min_len, beams = 25, 5, 1
+            # Optimized for maximum speed - shortest possible captions
+            max_len, min_len, beams = 12, 3, 1
             
             with torch.no_grad():
                 if device != "cpu":
@@ -255,9 +201,9 @@ class BLIPCaptioner:
         if not self.enabled:
             return
         
-        # Only process if enough time has passed AND not currently processing
+        # Only process if enough time has passed (removed processing flag check for speed)
         last_caption = self.camera_last_caption[camera_id]
-        if timestamp - last_caption >= self.caption_interval and not self.processing_flags[camera_id]:
+        if timestamp - last_caption >= self.caption_interval:
             try:
                 # Replace any existing frame in queue (we only want the latest)
                 while not self.camera_queues[camera_id].empty():
@@ -383,80 +329,14 @@ class BLIPCaptioner:
                 thread.join(timeout=2.0)
         logger.info("BLIP captioner stopped")
     
-    def switch_model(self, new_model_name: str):
-        """
-        Switch to a different BLIP model dynamically
-        
-        Args:
-            new_model_name: Hugging Face model identifier for the new model
-        """
-        logger.info(f"Switching from {self.model_name} to {new_model_name}")
-        
-        # Stop all current processing
-        old_running = self.running
-        self.running = False
-        
-        # Wait for threads to finish
-        for thread in self.camera_threads.values():
-            if thread.is_alive():
-                thread.join(timeout=3.0)
-        
-        # Clear old models
-        self.models.clear()
-        self.processors.clear()
-        
-        # Update model info
-        self.model_name = new_model_name
-        self.model_type = self._determine_model_type(new_model_name)
-        
-        # Reload models with new model name
-        for i, gpu_id in enumerate(self.available_gpus[:1]):
-            if gpu_id is not None:
-                device = f"cuda:{gpu_id}"
-                try:
-                    processor, model = self._load_model_and_processor(new_model_name, device)
-                    
-                    self.processors[gpu_id] = processor
-                    self.models[gpu_id] = model
-                    logger.info(f"Loaded {self.model_type.upper()} model on GPU {gpu_id}")
-                except Exception as e:
-                    logger.error(f"Failed to load {self.model_type.upper()} model on GPU {gpu_id}: {e}")
-                    if not self.models:
-                        self._load_cpu_model()
-                    break
-            else:
-                self._load_cpu_model()
-                break
-        
-        if not self.models:
-            logger.error("Failed to load new BLIP model on any device")
-            raise RuntimeError("Could not switch to new BLIP model")
-        
-        # Restart processing if it was running
-        self.running = old_running
-        logger.info(f"Successfully switched to {self.model_type.upper()} model: {new_model_name}")
-        
-        return {
-            "success": True,
-            "old_model": self.model_name if hasattr(self, '_old_model_name') else "unknown",
-            "new_model": new_model_name,
-            "model_type": self.model_type
-        }
 
 # Global captioner instance
 captioner = None
 
-def initialize_captioner(model_name: str = "Salesforce/blip-image-captioning-base", enabled: bool = True):
-    """
-    Initialize the global BLIP captioner
-    
-    Available models:
-    - BLIP: "Salesforce/blip-image-captioning-base", "Salesforce/blip-image-captioning-large" 
-    - BLIP-2: "Salesforce/blip2-opt-2.7b", "Salesforce/blip2-flan-t5-xl"
-    - InstructBLIP: "Salesforce/instructblip-vicuna-7b", "Salesforce/instructblip-flan-t5-xl"
-    """
+def initialize_captioner(enabled: bool = True):
+    """Initialize the global BLIP captioner with fastest model"""
     global captioner
-    captioner = BLIPCaptioner(model_name, enabled)
+    captioner = BLIPCaptioner(enabled=enabled)
     return captioner
 
 def get_captioner():
@@ -485,11 +365,6 @@ def get_stats():
     """Get camera captioning statistics"""
     captioner = get_captioner()
     return captioner.get_camera_stats()
-
-def switch_model(new_model_name: str):
-    """Switch to a different BLIP model"""
-    captioner = get_captioner()
-    return captioner.switch_model(new_model_name)
 
 def get_current_model_info():
     """Get current model information"""

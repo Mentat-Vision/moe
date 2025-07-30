@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Mentat Face</h1>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="detected-count">0</div>
+                    <div class="stat-label">Detected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="registered-count">0</div>
+                    <div class="stat-label">Registered</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="tracks-count">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Live Camera Feed</h2>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <canvas id="video-canvas" width="640" height="480" style="border: 2px solid #333; border-radius: 8px; background: #000;"></canvas>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Face Recognition Model</h2>
+            <div class="controls">
+                <label for="model-select" style="color: #fff; margin-right: 10px;">Select Model:</label>
+                <select id="model-select" class="btn" onchange="switchModel()">
+                    <option value="basic">Basic Tracking (OpenCV only)</option>
+                </select>
+            </div>
+            <div style="margin-top: 15px;">
+                <span id="current-model-info" style="color: #aaa; font-style: italic;"></span>
+            </div>
+            <div style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                Available models: FaceNet512, ArcFace, MixFaceNets, MobileFaceNet<br>
+                Switch models to enable embedding-based face matching for better accuracy
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Live Face Tracking <span class="refresh-indicator" id="refresh-indicator">●</span></h2>
+            <div style="margin-bottom: 15px; color: #aaa; font-size: 0.9em;">
+                Faces are automatically registered with temporary IDs when they become stable (25+ stability).
+                Use the database section below to rename them.
+            </div>
+            <div class="controls">
+                <button class="btn btn-dark" onclick="refreshAll()">Refresh All</button>
+            </div>
+            <div class="faces-grid" id="current-faces">
+                <div class="no-data">No stable faces detected yet</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Registered Database</h2>
+            <div style="margin-bottom: 15px; color: #aaa; font-size: 0.9em;">
+                Auto-registered faces appear here with temporary names (temp_person_001, etc.).
+                Click "Update" to rename them to proper names.
+            </div>
+            <div class="faces-grid" id="registered-faces">
+                <div class="no-data">No faces registered yet</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

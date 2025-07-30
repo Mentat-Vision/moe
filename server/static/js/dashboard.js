@@ -8,8 +8,6 @@ class Dashboard {
         this.socket = null;
         this.detectionHistory = new Map(); // Store detection history per camera
         this.captionHistory = new Map(); // Store caption history per camera
-        this.availableModels = []; // Store available BLIP models
-        this.currentModel = null; // Store current BLIP model info
         this.init();
     }
 
@@ -34,11 +32,6 @@ class Dashboard {
         this.setupToggleYoloButton();
         this.setupToggleBlipButton();
         this.updateYoloStatus();
-        
-        // Set up BLIP model selector
-        this.loadBlipModels();
-        this.updateBlipStatus();
-        this.setupModelSwitcher();
     }
 
     initWebSocket() {
@@ -479,116 +472,6 @@ class Dashboard {
         }
     }
 
-    async loadBlipModels() {
-        try {
-            const response = await fetch('/api/blip/models');
-            if (response.ok) {
-                const data = await response.json();
-                this.availableModels = data.models;
-                this.populateModelSelector();
-            }
-        } catch (error) {
-            console.error('Error loading BLIP models:', error);
-        }
-    }
-
-    populateModelSelector() {
-        const selector = document.getElementById('blip-model-select');
-        if (selector && this.availableModels.length > 0) {
-            selector.innerHTML = '';
-            
-            this.availableModels.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model.model_name;
-                option.textContent = `${model.name} (${model.type.toUpperCase()})`;
-                option.title = model.description;
-                selector.appendChild(option);
-            });
-            
-            // Set current model as selected if we have it
-            if (this.currentModel) {
-                selector.value = this.currentModel.model_name;
-            }
-        }
-    }
-
-    async updateBlipStatus() {
-        try {
-            const response = await fetch('/api/blip/status');
-            if (response.ok) {
-                const status = await response.json();
-                this.currentModel = status;
-                
-                // Update toggle button
-                const toggleBtn = document.getElementById('toggle-blip-btn');
-                if (toggleBtn) {
-                    this.updateBlipButtonState(toggleBtn, status.enabled);
-                }
-                
-                // Update model selector
-                const selector = document.getElementById('blip-model-select');
-                if (selector && status.model_name) {
-                    selector.value = status.model_name;
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching BLIP status:', error);
-        }
-    }
-
-    setupModelSwitcher() {
-        const switchBtn = document.getElementById('switch-model-btn');
-        const selector = document.getElementById('blip-model-select');
-        
-        if (switchBtn && selector) {
-            switchBtn.addEventListener('click', async () => {
-                const selectedModel = selector.value;
-                if (!selectedModel) return;
-                
-                // Disable button during switch
-                switchBtn.disabled = true;
-                switchBtn.textContent = 'Switching...';
-                
-                try {
-                    const response = await fetch('/api/blip/switch_model', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model_name: selectedModel
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                        if (result.success) {
-                            console.log(`Successfully switched to ${result.model_type.toUpperCase()} model: ${result.new_model}`);
-                            
-                            // Update current model info
-                            await this.updateBlipStatus();
-                            
-                            // Show success feedback
-                            switchBtn.textContent = 'Switched!';
-                            setTimeout(() => {
-                                switchBtn.textContent = 'Switch';
-                            }, 2000);
-                        } else {
-                            throw new Error(result.error || 'Failed to switch model');
-                        }
-                    } else {
-                        throw new Error('Server error during model switch');
-                    }
-                } catch (error) {
-                    console.error('Error switching BLIP model:', error);
-                    alert(`Error switching model: ${error.message}`);
-                    switchBtn.textContent = 'Switch';
-                } finally {
-                    switchBtn.disabled = false;
-                }
-            });
-        }
-    }
 
     startStatusCheck() {
         this.statusCheckInterval = setInterval(() => {
