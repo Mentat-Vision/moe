@@ -1,5 +1,7 @@
 # server.py
-from flask import Flask, render_template, request, Response, jsonify
+from flask import Flask, render_template, request, Response, jsonify, url_for, send_from_directory
+from urllib.parse import quote
+import os
 from flask_socketio import SocketIO, emit
 import threading
 import time
@@ -10,6 +12,7 @@ import cv2
 import numpy as np
 from system1.yolo import initialize_detector, process_frame, get_all_detections, get_stats, get_annotated_frame
 from system1.blip import initialize_captioner, process_frame as blip_process_frame, get_all_captions, get_stats as blip_get_stats, get_current_model_info
+from system1.face import initialize_face_recognizer, process_frame as face_process_frame, get_all_camera_faces, get_face_stats, get_face_database, update_face_name, delete_face, delete_all_faces, toggle_auto_register, get_face_annotated_frame
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,14 @@ class StreamManager:
                         self.last_broadcast_time[f"{cam_id}_blip"] = now
                     except Exception as e:
                         logger.warning(f"BLIP processing error for {cam_id}: {e}")
+                
+                # Process frame through face recognition (every 300ms for good responsiveness)
+                if cam_id not in self.last_broadcast_time or (now - self.last_broadcast_time.get(f"{cam_id}_face", 0)) >= 0.3:
+                    try:
+                        face_process_frame(cam_id, jpg_data, now)
+                        self.last_broadcast_time[f"{cam_id}_face"] = now
+                    except Exception as e:
+                        logger.warning(f"Face processing error for {cam_id}: {e}")
             except Exception as e:
                 print(f"Frame error {cam_id}: {e}")
 
@@ -148,6 +159,10 @@ print("YOLO detector initialized with multi-GPU support")
 blip_captioner = initialize_captioner()
 print("BLIP captioner initialized with multi-GPU support")
 
+# Initialize Face Recognizer (disabled by default, will be enabled via toggle)
+face_recognizer = initialize_face_recognizer(enabled=False)
+print("Face recognizer initialized (disabled by default)")
+
 # Register callback to broadcast detection results
 def broadcast_detection_result(result_data):
     """Broadcast YOLO detection results to connected clients"""
@@ -161,6 +176,13 @@ def broadcast_caption_result(result_data):
     socketio.emit('caption_result', result_data)
 
 blip_captioner.register_callback(broadcast_caption_result)
+
+# Register callback to broadcast face recognition results
+def broadcast_face_result(result_data):
+    """Broadcast face recognition results to connected clients"""
+    socketio.emit('face_result', result_data)
+
+face_recognizer.register_callback(broadcast_face_result)
 
 @app.route("/")
 def index():
@@ -269,6 +291,184 @@ def toggle_blip():
         "enabled": blip_captioner.enabled,
         "message": f"BLIP processing {'enabled' if blip_captioner.enabled else 'disabled'}"
     })
+
+# Face Recognition API endpoints
+@app.route("/api/face/stats")
+def face_stats():
+    """Get face recognition statistics"""
+    return jsonify(get_face_stats())
+
+@app.route("/api/face/database")
+def face_database():
+    """Get all registered faces"""
+    return jsonify(get_face_database())
+
+@app.route("/api/face/faces")
+def camera_faces():
+    """Get recent face results for all cameras"""
+    return jsonify(get_all_camera_faces())
+
+@app.route("/api/face/faces/<cam_id>")
+def camera_faces_by_id(cam_id):
+    """Get recent face results for a specific camera"""
+    from system1.face import get_camera_faces
+    return jsonify(get_camera_faces(cam_id))
+
+@app.route("/api/demo/faces")
+def demo_faces():
+    """List demo face images from likely faces folders.
+
+    Checks in order:
+    - server/static/faces
+    - server/faces
+    - <repo_root>/faces
+    """
+    results = []
+
+    # 1) server/static/faces (served via media route)
+    static_faces_dir = os.path.join(app.static_folder, "faces")
+    if os.path.isdir(static_faces_dir):
+        for fname in sorted(os.listdir(static_faces_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+                results.append({
+                    "name": os.path.splitext(fname)[0],
+                    "url": f"/media/faces/static/{quote(fname)}"
+                })
+
+    # 2) server/faces (serve via a static URL prefix mapping under /static/..)
+    server_dir = os.path.dirname(os.path.abspath(__file__))
+    server_faces_dir = os.path.join(server_dir, "faces")
+    if os.path.isdir(server_faces_dir):
+        for fname in sorted(os.listdir(server_faces_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+                results.append({
+                    "name": os.path.splitext(fname)[0],
+                    "url": f"/media/faces/server/{quote(fname)}"
+                })
+
+    # 3) repo root /faces
+    repo_root = os.path.abspath(os.path.join(server_dir, os.pardir))
+    root_faces_dir = os.path.join(repo_root, "faces")
+    if os.path.isdir(root_faces_dir):
+        for fname in sorted(os.listdir(root_faces_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+                results.append({
+                    "name": os.path.splitext(fname)[0],
+                    "url": f"/media/faces/root/{quote(fname)}"
+                })
+
+    return jsonify(results)
+
+@app.route('/media/faces/<source>/<path:filename>')
+def serve_faces_media(source, filename):
+    """Serve face images from known directories via a stable media route."""
+    server_dir = os.path.dirname(os.path.abspath(__file__))
+    static_faces_dir = os.path.join(app.static_folder, "faces")
+    server_faces_dir = os.path.join(server_dir, "faces")
+    repo_root = os.path.abspath(os.path.join(server_dir, os.pardir))
+    root_faces_dir = os.path.join(repo_root, "faces")
+
+    source_map = {
+        'static': static_faces_dir,
+        'server': server_faces_dir,
+        'root': root_faces_dir,
+    }
+    base_dir = source_map.get(source)
+    if base_dir and os.path.isdir(base_dir):
+        # Security: ensure resolved path is within base_dir
+        requested_path = os.path.normpath(os.path.join(base_dir, filename))
+        if requested_path.startswith(os.path.abspath(base_dir)) and os.path.exists(requested_path):
+            return send_from_directory(base_dir, filename)
+    return Response(status=404)
+
+@app.route('/media/chat/<path:name>')
+def serve_chat_media(name):
+    """Serve chat image attachments from server/chat.
+    If extension is omitted, try common image extensions.
+    """
+    server_dir = os.path.dirname(os.path.abspath(__file__))
+    chat_dir = os.path.join(server_dir, 'chat')
+    if not os.path.isdir(chat_dir):
+        return Response(status=404)
+    allowed_exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+    base, ext = os.path.splitext(name)
+    candidates = []
+    if ext:
+        candidates = [name]
+    else:
+        candidates = [base + e for e in allowed_exts]
+    for candidate in candidates:
+        path = os.path.join(chat_dir, candidate)
+        if os.path.exists(path):
+            return send_from_directory(chat_dir, candidate)
+    return Response(status=404)
+
+@app.route("/api/face/toggle", methods=["POST"])
+def toggle_face_recognition():
+    """Toggle face recognition on/off"""
+    global face_recognizer
+    current_state = face_recognizer.enabled
+    face_recognizer.enabled = not current_state
+    
+    return jsonify({
+        "enabled": face_recognizer.enabled,
+        "message": f"Face recognition {'enabled' if face_recognizer.enabled else 'disabled'}"
+    })
+
+@app.route("/api/face/status")
+def face_status():
+    """Get current face recognition status"""
+    global face_recognizer
+    return jsonify({
+        "enabled": face_recognizer.enabled,
+        "auto_register": face_recognizer.auto_register,
+        "use_embeddings": face_recognizer.use_embeddings,
+        "total_faces": len(face_recognizer.faces_db),
+        "model_loaded": face_recognizer.arcface_model.model_loaded if face_recognizer.arcface_model else False
+    })
+
+@app.route("/api/face/auto_register/toggle", methods=["POST"])
+def toggle_auto_register():
+    """Toggle auto-registration of new faces"""
+    result = toggle_auto_register()
+    return jsonify({
+        "auto_register": result,
+        "message": f"Auto-registration {'enabled' if result else 'disabled'}"
+    })
+
+@app.route("/api/face/update_name", methods=["POST"])
+def update_face_name_endpoint():
+    """Update a face name"""
+    data = request.get_json()
+    face_id = data.get('face_id')
+    new_name = data.get('new_name')
+    
+    if not face_id or not new_name:
+        return jsonify({"success": False, "error": "Missing face_id or new_name"}), 400
+    
+    success = update_face_name(face_id, new_name)
+    return jsonify({"success": success})
+
+@app.route("/api/face/delete", methods=["POST"])
+def delete_face_endpoint():
+    """Delete a face"""
+    data = request.get_json()
+    face_id = data.get('face_id')
+    
+    if not face_id:
+        return jsonify({"success": False, "error": "Missing face_id"}), 400
+    
+    success = delete_face(face_id)
+    return jsonify({"success": success})
+
+@app.route("/api/face/delete_all", methods=["POST"])
+def delete_all_faces_endpoint():
+    """Delete all faces"""
+    success = delete_all_faces()
+    return jsonify({"success": success})
 
 
 @socketio.on("connect")

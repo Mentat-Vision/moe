@@ -12,6 +12,8 @@
             <h1><img src="{{ url_for('static', filename='mentatRed.png') }}" alt="Mentat Logo" class="mentat-logo"> Mentat</h1>
             <div class="status-bar">
                 <span id="connection-status">Connecting...</span>
+                <span id="threat-level" class="threat-level low">Low</span>
+                <span id="activity-counter">Threats Today: 0</span>
             </div>
         </header>
 
@@ -20,24 +22,89 @@
                 <span id="camera-count">Cameras: 0</span>
             </div>
             <div class="controls-right">
-                <button id="toggle-yolo-btn" class="toggle-btn yolo-enabled">YOLO ON</button>
-                <button id="toggle-boxes-btn" class="toggle-btn">Toggle Boxes</button>
-                <button id="toggle-blip-btn" class="toggle-btn blip-enabled">BLIP ON</button>
+                <button id="toggle-yolo-btn" class="toggle-btn yolo-enabled">AI Detection ON</button>
+                <button id="toggle-boxes-btn" class="toggle-btn">Show Overlays</button>
+                <button id="toggle-blip-btn" class="toggle-btn blip-enabled">Scene Analysis ON</button>
+                <button id="toggle-face-btn" class="toggle-btn face-disabled">Face Recognition OFF</button>
+                <button id="toggle-auto-register-btn" class="toggle-btn auto-register-enabled">Auto-Enroll ON</button>
+                <button id="toggle-simple-view" class="toggle-btn">Simple View</button>
             </div>
         </div>
 
-        <main>
-            <div class="camera-grid" id="camera-grid">
-                <!-- Camera feeds will be dynamically added here -->
-            </div>
-            
-            <div class="yolo-stats-panel" id="yolo-stats-panel">
-                <h3>YOLO Processing Stats</h3>
-                <div id="yolo-stats-content">
-                    <p>Initializing YOLO detector...</p>
+        <div class="system-status-panel" id="system-status-panel">
+            <h3>System Status</h3>
+            <div class="status-grid">
+                <div class="stat-card">
+                    <div class="stat-title">GPU Usage</div>
+                    <div class="bar"><div class="bar-fill" id="gpu-bar" style="width: 0%"></div></div>
+                    <div class="stat-value" id="gpu-usage">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Memory</div>
+                    <div class="bar"><div class="bar-fill" id="mem-bar" style="width: 0%"></div></div>
+                    <div class="stat-value" id="mem-usage">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Network</div>
+                    <div class="bar"><div class="bar-fill" id="net-bar" style="width: 0%"></div></div>
+                    <div class="stat-value" id="net-usage">0 Mbps</div>
                 </div>
             </div>
+        </div>
+
+        <main class="main-layout">
+            <section class="main-left">
+                <div class="camera-grid" id="camera-grid">
+                    <!-- Camera feeds will be dynamically added here -->
+                </div>
+                
+                <div class="yolo-stats-panel" id="yolo-stats-panel">
+                    <h3>Processing Stats</h3>
+                    <div id="yolo-stats-content">
+                        <p>Initializing...</p>
+                    </div>
+                </div>
+            </section>
+            <section class="main-middle">
+                <div class="face-grid-panel" id="face-grid-panel">
+                    <h3>Registered Faces</h3>
+                    <div class="face-controls">
+                        <span id="face-count">Total Faces: 0</span>
+                        <button id="clear-faces-btn" class="clear-btn">Clear All Faces</button>
+                    </div>
+                    <div class="face-grid" id="face-grid">
+                        <p>No faces registered yet</p>
+                    </div>
+                </div>
+            </section>
+            <aside class="main-right">
+                <div class="notif-header">
+                    <h3>Activity Feed</h3>
+                    <span id="notif-count">0</span>
+                </div>
+                <div class="notif-feed" id="notif-feed">
+                    <p class="notif-empty">No activity yet</p>
+                </div>
+                <div class="chat-panel" id="chat-panel" style="display:none;">
+                    <div class="chat-header">Mentat Assistant</div>
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="msg assistant"><div class="bubble">Mentat: Evening ops check complete. Ask about vehicles, cameras, or patterns.</div></div>
+                        <div class="msg user"><div class="bubble">User: Show me the small scooter that appeared near RTSP_201 this week.</div></div>
+                        <div class="msg assistant"><div class="bubble">Mentat: Scooter seen twice near the gate around 21:10. Attaching a frame for reference.<br><img src="/media/chat/scoot" alt="scooter" /></div></div>
+                        <div class="msg user"><div class="bubble">User: And the white van near RTSP_101 — do we have a capture?</div></div>
+                        <div class="msg assistant"><div class="bubble">Mentat: Reappeared at 19:42 today; similar to last Tuesday’s visit. Attached is the latest view.<br><img src="/media/chat/van" alt="van" /></div></div>
+                        <div class="msg user"><div class="bubble">User: Any changes in parking occupancy on RTSP_501?</div></div>
+                        <div class="msg assistant"><div class="bubble">Mentat: +1 vehicle vs last Monday; still within 30‑day baseline. No alerts triggered.</div></div>
+                    </div>
+                    <div class="chat-input">
+                        <input type="text" id="chat-text" placeholder="Ask about today, last week, find people..." />
+                        <button id="chat-send" class="toggle-btn">Send</button>
+                    </div>
+                </div>
+            </aside>
         </main>
+        
+        <!-- Toast container removed - no longer using toast notifications -->
 
         <footer>
             <p>Mentat - Real-time monitoring</p>

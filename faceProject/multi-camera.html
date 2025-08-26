@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Camera Face Recognition</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Enhanced Header with Model Selection -->
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                <h1>Multi-Cam Face Recognition <span class="refresh-indicator" id="refresh-indicator">●</span></h1>
+                
+                <!-- Model Selection -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="color: #ff0000; font-size: 0.9em; font-weight: 500;">Model:</span>
+                    <select id="model-select" class="btn" onchange="switchModel()" style="min-width: 180px; font-size: 13px;">
+                        <option value="basic">OpenCV Haar Cascade (Face Detection Only)</option>
+                    </select>
+                    <button class="btn btn-dark" onclick="refreshAll()" style="font-size: 13px; padding: 8px 12px;">Refresh</button>
+                </div>
+            </div>
+            
+            <!-- Stats -->
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="cameras-count">0</div>
+                    <div class="stat-label">Cameras</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="detected-count">0</div>
+                    <div class="stat-label">Detected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="registered-count">0</div>
+                    <div class="stat-label">Registered</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="tracks-count">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Model Status -->
+        <div style="text-align: center; padding: 4px; background: #111; margin-bottom: 8px; border-radius: 4px;">
+            <span id="current-model-info" style="color: #aaa; font-style: italic; font-size: 0.8em;">Loading model...</span>
+        </div>
+        
+        <!-- Clean Multi-Camera Layout -->
+        <div class="main-layout">
+            
+            <!-- Camera Grid -->
+            <div class="section cameras-section">
+                <h2>Camera Feeds</h2>
+                <div id="camera-grid" class="cameras-grid">
+                    <div class="no-data">Loading cameras...</div>
+                </div>
+            </div>
+            
+            <!-- Faces Panel -->
+            <div class="section faces-section">
+                <h2>Faces</h2>
+                <div class="faces-container" id="combined-faces">
+                    <div class="no-data">No faces detected</div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script src="multi-camera.js"></script>
+</body>
+</html>

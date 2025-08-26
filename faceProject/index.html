@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Compact Header -->
+        <div class="header">
+            <h1>Mentat Face <span class="refresh-indicator" id="refresh-indicator">●</span></h1>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="detected-count">0</div>
+                    <div class="stat-label">Detected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="registered-count">0</div>
+                    <div class="stat-label">Registered</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="tracks-count">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Simplified Main Layout -->
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; flex: 1; min-height: 0; height: calc(100vh - 120px);">
+            
+            <!-- Main Camera Feed -->
+            <div class="section camera-main">
+                <h2>Live Camera Feed</h2>
+                <div class="camera-feed-container">
+                    <canvas id="video-canvas" width="640" height="480"></canvas>
+                </div>
+            </div>
+            
+            <!-- Sidebar Controls -->
+            <div class="sidebar">
+                
+                <!-- Quick Controls -->
+                <div class="section compact">
+                    <div class="controls-row">
+                        <select id="model-select" class="btn-select" onchange="switchModel()">
+                            <option value="basic">Basic Detection</option>
+                        </select>
+                        <button class="btn btn-dark" onclick="refreshAll()">⟳</button>
+                    </div>
+                    <div class="model-status">
+                        <span id="current-model-info">Loading...</span>
+                    </div>
+                </div>
+                
+                <!-- Face Database -->
+                <div class="section">
+                    <h2>Faces</h2>
+                    
+                    <!-- Live Faces -->
+                    <div class="subsection">
+                        <h3>Currently Detected</h3>
+                        <div class="faces-grid-compact" id="current-faces">
+                            <div class="no-data">Scanning...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Registered Faces -->
+                    <div class="subsection">
+                        <h3>Registered Database</h3>
+                        <div class="faces-grid-compact" id="registered-faces">
+                            <div class="no-data">No faces saved</div>
+                        </div>
+                    </div>
+                    
+                </div>
+                
+            </div>
+            
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
