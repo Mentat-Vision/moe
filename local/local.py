@@ -184,9 +184,9 @@ class LocalClient:
             # "CAMERA_2": "2",
             # "ESP32_CAMERA": "http://10.8.120.220/stream",
             "CAMERA_RTSP_101": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/101",
-            "CAMERA_RTSP_201": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201",
-            "CAMERA_RTSP_301": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301",
-            "CAMERA_RTSP_401": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/401",
+            # "CAMERA_RTSP_201": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/201",
+            # "CAMERA_RTSP_301": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/301",
+            # "CAMERA_RTSP_401": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/401",
             "CAMERA_RTSP_501": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/501",
             "CAMERA_RTSP_601": "rtsp://Koy%20Otaniemen%20T:Otaranta123@10.19.55.20:554/Streaming/Channels/601",
         }
